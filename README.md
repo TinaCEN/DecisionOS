@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DecisionOS MVP
 
-## Getting Started
+This repository now contains a DecisionOS hackathon MVP scaffold defined by `AGENT.md`.
 
-First, run the development server:
+## Structure
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```text
+frontend        # Next.js App Router frontend
+backend         # FastAPI backend (JSON + SSE)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Frontend
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Entry: `frontend/app/page.tsx`
+- Core flow pages:
+  - `/idea-canvas`
+  - `/feasibility`
+  - `/feasibility/[id]`
+  - `/scope-freeze`
+  - `/prd`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run commands:
 
-## Learn More
+```bash
+pnpm dev:web
+pnpm build:web
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Backend
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Entry: `backend/app/main.py`
+- Health: `GET /health`
+- JSON endpoints:
+  - `POST /agents/opportunity`
+  - `POST /agents/feasibility`
+  - `POST /agents/scope`
+  - `POST /agents/prd`
+- SSE endpoints:
+  - `POST /agents/opportunity/stream`
+  - `POST /agents/feasibility/stream`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Setup and run:
 
-## Deploy on Vercel
+```bash
+cd backend
+uv venv .venv
+UV_CACHE_DIR=../.uv-cache uv pip install -r requirements.txt
+UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Type checking:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+cd backend
+UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python mypy app
+```
+
+## Notes
+
+- Frontend uses Zustand persist with `skipHydration: true` and manual rehydrate.
+- SSE client uses `fetch` stream parsing and supports `AbortController`.
+- Backend mock outputs are deterministic by `idea_seed`.
