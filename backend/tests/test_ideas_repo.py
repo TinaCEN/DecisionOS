@@ -151,14 +151,15 @@ def test_delete_idea_removes_row():
 def test_delete_idea_cascades_nodes_and_paths():
     repo = IdeaRepository()
     idea = _make_idea()
-    node = _repo_dag.create_node(idea_id=idea.id, content="root")
+    root = _repo_dag.create_node(idea_id=idea.id, content="root")
+    child = _repo_dag.create_node(idea_id=idea.id, content="child", parent_id=root.id)
     _repo_dag.create_path(
         idea_id=idea.id,
-        node_chain=[node.id],
+        node_chain=[root.id, child.id],
         path_md="# Path",
         path_json='{"node_chain":[]}',
     )
-    assert len(_repo_dag.list_nodes(idea.id)) == 1
+    assert len(_repo_dag.list_nodes(idea.id)) == 2
     assert _repo_dag.get_latest_path(idea.id) is not None
     repo.delete_idea(idea.id)
     assert repo.get_idea(idea.id) is None
