@@ -8,6 +8,11 @@ import type {
   PatchAISettingsRequest,
   PatchIdeaContextRequest,
   PatchIdeaRequest,
+  ScopeBaselineOut,
+  ScopeBaselineResponse,
+  ScopeDraftResponse,
+  ScopeDraftUpdateRequest,
+  ScopeVersionedRequest,
   TestAIProviderRequest,
   TestAIProviderResponse,
 } from './schemas'
@@ -15,6 +20,48 @@ import type {
 const DEFAULT_API_BASE_URL = 'http://localhost:8000'
 
 export const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL
+
+export class ApiError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+const buildApiError = async (response: Response): Promise<ApiError> => {
+  const reason = await response.text().catch(() => '')
+  let code: string | undefined
+  let messageBody = reason
+
+  if (reason) {
+    try {
+      const parsed = JSON.parse(reason) as
+        | { detail?: string | { code?: string; message?: string } }
+        | undefined
+      if (parsed?.detail) {
+        if (typeof parsed.detail === 'string') {
+          messageBody = parsed.detail
+        } else {
+          code = parsed.detail.code
+          messageBody = parsed.detail.message ?? reason
+        }
+      }
+    } catch {
+      // Keep raw text when payload is not JSON.
+    }
+  }
+
+  return new ApiError(
+    `Request failed with ${response.status}${messageBody ? `: ${messageBody}` : ''}`,
+    response.status,
+    code
+  )
+}
 
 export const buildApiUrl = (path: string): string => {
   if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -40,8 +87,7 @@ export const jsonPost = async <TRequest, TResponse>(
   })
 
   if (!response.ok) {
-    const reason = await response.text().catch(() => '')
-    throw new Error(`Request failed with ${response.status}${reason ? `: ${reason}` : ''}`)
+    throw await buildApiError(response)
   }
 
   return (await response.json()) as TResponse
@@ -54,8 +100,7 @@ export const jsonGet = async <TResponse>(path: string, init?: RequestInit): Prom
   })
 
   if (!response.ok) {
-    const reason = await response.text().catch(() => '')
-    throw new Error(`Request failed with ${response.status}${reason ? `: ${reason}` : ''}`)
+    throw await buildApiError(response)
   }
 
   return (await response.json()) as TResponse
@@ -77,8 +122,7 @@ export const jsonPatch = async <TRequest, TResponse>(
   })
 
   if (!response.ok) {
-    const reason = await response.text().catch(() => '')
-    throw new Error(`Request failed with ${response.status}${reason ? `: ${reason}` : ''}`)
+    throw await buildApiError(response)
   }
 
   return (await response.json()) as TResponse
@@ -91,8 +135,7 @@ export const jsonDelete = async (path: string, init?: RequestInit): Promise<void
   })
 
   if (!response.ok) {
-    const reason = await response.text().catch(() => '')
-    throw new Error(`Request failed with ${response.status}${reason ? `: ${reason}` : ''}`)
+    throw await buildApiError(response)
   }
 }
 
@@ -131,6 +174,93 @@ export const patchIdeaContext = async (
   payload: PatchIdeaContextRequest
 ): Promise<IdeaDetail> => {
   return await jsonPatch<PatchIdeaContextRequest, IdeaDetail>(`/ideas/${ideaId}/context`, payload)
+}
+
+const toScopeBaselineResponse = (payload: ScopeBaselineOut): ScopeBaselineResponse => ({
+  baseline: {
+    id: payload.id,
+    idea_id: payload.idea_id,
+    version: payload.version,
+    status: payload.status,
+    source_baseline_id: payload.source_baseline_id,
+    created_at: payload.created_at,
+    frozen_at: payload.frozen_at,
+  },
+  items: payload.items,
+})
+
+const toScopeDraftResponse = (payload: ScopeBaselineOut): ScopeDraftResponse => ({
+  ...toScopeBaselineResponse(payload),
+  readonly: payload.status !== 'draft',
+})
+
+export const getScopeDraft = async (ideaId: string): Promise<ScopeDraftResponse> => {
+  const payload = await jsonGet<ScopeBaselineOut>(`/ideas/${ideaId}/scope/draft`)
+  return toScopeDraftResponse(payload)
+}
+
+export const bootstrapScopeDraft = async (
+  ideaId: string,
+  payload: ScopeVersionedRequest
+): Promise<AgentEnvelope & { data: ScopeDraftResponse }> => {
+  const envelope = await jsonPost<
+    ScopeVersionedRequest,
+    AgentEnvelope & { data: ScopeBaselineOut }
+  >(`/ideas/${ideaId}/scope/draft/bootstrap`, payload)
+  return {
+    ...envelope,
+    data: toScopeDraftResponse(envelope.data),
+  }
+}
+
+export const patchScopeDraft = async (
+  ideaId: string,
+  payload: ScopeDraftUpdateRequest
+): Promise<AgentEnvelope & { data: ScopeDraftResponse }> => {
+  const envelope = await jsonPatch<
+    ScopeDraftUpdateRequest,
+    AgentEnvelope & { data: ScopeBaselineOut }
+  >(`/ideas/${ideaId}/scope/draft`, payload)
+  return {
+    ...envelope,
+    data: toScopeDraftResponse(envelope.data),
+  }
+}
+
+export const freezeScope = async (
+  ideaId: string,
+  payload: ScopeVersionedRequest
+): Promise<AgentEnvelope & { data: ScopeDraftResponse }> => {
+  const envelope = await jsonPost<
+    ScopeVersionedRequest,
+    AgentEnvelope & { data: ScopeBaselineOut }
+  >(`/ideas/${ideaId}/scope/freeze`, payload)
+  return {
+    ...envelope,
+    data: toScopeDraftResponse(envelope.data),
+  }
+}
+
+export const createScopeNewVersion = async (
+  ideaId: string,
+  payload: ScopeVersionedRequest
+): Promise<AgentEnvelope & { data: ScopeDraftResponse }> => {
+  const envelope = await jsonPost<
+    ScopeVersionedRequest,
+    AgentEnvelope & { data: ScopeBaselineOut }
+  >(`/ideas/${ideaId}/scope/new-version`, payload)
+  return {
+    ...envelope,
+    data: toScopeDraftResponse(envelope.data),
+  }
+}
+
+export const getScopeBaseline = async (
+  ideaId: string,
+  baselineId: string
+): Promise<ScopeBaselineResponse> => {
+  const payload = await jsonGet<ScopeBaselineOut>(`/ideas/${ideaId}/scope/baselines/${baselineId}`)
+  return toScopeBaselineResponse(payload)
 }
 
 export const deleteIdea = async (ideaId: string): Promise<void> => {

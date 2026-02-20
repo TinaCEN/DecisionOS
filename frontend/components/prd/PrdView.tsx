@@ -5,9 +5,16 @@ type PrdViewProps = {
   context: DecisionContext
   loading?: boolean
   errorMessage?: string | null
+  scopeNotice?: string | null
 }
 
-export function PrdView({ prd, context, loading = false, errorMessage = null }: PrdViewProps) {
+export function PrdView({
+  prd,
+  context,
+  loading = false,
+  errorMessage = null,
+  scopeNotice = null,
+}: PrdViewProps) {
   const inScopeTitles = context.scope?.in_scope.map((item) => item.title) ?? []
   const contextRows = [
     { label: 'Idea Seed', value: context.idea_seed ?? 'N/A' },
@@ -25,6 +32,7 @@ export function PrdView({ prd, context, loading = false, errorMessage = null }: 
         </p>
         {loading ? <p className="mt-2 text-xs text-slate-500">Generating PRD...</p> : null}
         {errorMessage ? <p className="mt-2 text-xs text-red-600">{errorMessage}</p> : null}
+        {scopeNotice ? <p className="mt-2 text-xs text-amber-700">{scopeNotice}</p> : null}
       </header>
 
       <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

@@ -124,7 +124,11 @@ export function AppShell({ children }: AppShellProps) {
       label: 'Scope Freeze',
       description: 'Boundaries',
       locked: !scopeOpen,
-      done: Boolean(hydratedContext?.scope_frozen || hydratedContext?.scope),
+      done: Boolean(
+        hydratedContext?.current_scope_baseline_id ||
+        hydratedContext?.scope_frozen ||
+        hydratedContext?.scope
+      ),
     },
     {
       step: 'prd',

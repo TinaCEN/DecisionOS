@@ -118,6 +118,56 @@ export const scopeOutputSchema = z.object({
   out_scope: z.array(outScopeItemSchema),
 })
 
+export const scopeBaselineStatusSchema = z.enum(['draft', 'frozen', 'superseded'])
+export const scopeBaselineLaneSchema = z.enum(['in', 'out'])
+
+export const scopeBaselineItemSchema = z.object({
+  id: z.string().min(1),
+  baseline_id: z.string().min(1),
+  lane: scopeBaselineLaneSchema,
+  content: z.string().min(1),
+  display_order: z.number().int().nonnegative(),
+  created_at: z.string().min(1),
+})
+
+export const scopeBaselineSchema = z.object({
+  id: z.string().min(1),
+  idea_id: z.string().min(1),
+  version: z.number().int().positive(),
+  status: scopeBaselineStatusSchema,
+  source_baseline_id: z.string().min(1).nullable().optional(),
+  created_at: z.string().min(1),
+  frozen_at: z.string().min(1).nullable().optional(),
+})
+
+export const scopeBaselineOutSchema = scopeBaselineSchema.extend({
+  items: z.array(scopeBaselineItemSchema),
+})
+
+export const scopeBaselineResponseSchema = z.object({
+  baseline: scopeBaselineSchema,
+  items: z.array(scopeBaselineItemSchema),
+})
+
+export const scopeDraftResponseSchema = scopeBaselineResponseSchema.extend({
+  readonly: z.boolean(),
+})
+
+export const scopeDraftItemInputSchema = z.object({
+  lane: scopeBaselineLaneSchema,
+  content: z.string().min(1),
+  display_order: z.number().int().nonnegative(),
+})
+
+export const scopeDraftUpdateRequestSchema = z.object({
+  version: z.number().int().nonnegative(),
+  items: z.array(scopeDraftItemInputSchema),
+})
+
+export const scopeVersionedRequestSchema = z.object({
+  version: z.number().int().nonnegative(),
+})
+
 export const prdSectionsSchema = z.object({
   problem_statement: z.string().min(1),
   target_user: z.string().min(1),
@@ -171,6 +221,8 @@ export const decisionContextSchema = z.object({
   selected_plan_id: z.string().min(1).optional(),
   scope: scopeOutputSchema.optional(),
   scope_frozen: z.boolean().optional(),
+  current_scope_baseline_id: z.string().min(1).optional(),
+  current_scope_baseline_version: z.number().int().positive().optional(),
   prd: prdOutputSchema.optional(),
   confirmed_dag_path_id: z.string().optional(),
   confirmed_dag_node_id: z.string().optional(),
@@ -262,6 +314,16 @@ export type InScopeItem = z.infer<typeof inScopeItemSchema>
 export type OutScopeItem = z.infer<typeof outScopeItemSchema>
 export type ScopeInput = z.infer<typeof scopeInputSchema>
 export type ScopeOutput = z.infer<typeof scopeOutputSchema>
+export type ScopeBaselineStatus = z.infer<typeof scopeBaselineStatusSchema>
+export type ScopeBaselineLane = z.infer<typeof scopeBaselineLaneSchema>
+export type ScopeBaselineItem = z.infer<typeof scopeBaselineItemSchema>
+export type ScopeBaseline = z.infer<typeof scopeBaselineSchema>
+export type ScopeBaselineOut = z.infer<typeof scopeBaselineOutSchema>
+export type ScopeBaselineResponse = z.infer<typeof scopeBaselineResponseSchema>
+export type ScopeDraftResponse = z.infer<typeof scopeDraftResponseSchema>
+export type ScopeDraftItemInput = z.infer<typeof scopeDraftItemInputSchema>
+export type ScopeDraftUpdateRequest = z.infer<typeof scopeDraftUpdateRequestSchema>
+export type ScopeVersionedRequest = z.infer<typeof scopeVersionedRequestSchema>
 export type PrdSections = z.infer<typeof prdSectionsSchema>
 export type PrdInput = z.infer<typeof prdInputSchema>
 export type PrdOutput = z.infer<typeof prdOutputSchema>

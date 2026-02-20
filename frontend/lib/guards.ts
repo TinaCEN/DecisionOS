@@ -1,13 +1,11 @@
-import type { DecisionContext, FeasibilityPlan } from './schemas'
+import type { DecisionContext } from './schemas'
 
 const hasSelectedPlan = (context: DecisionContext): boolean => {
-  if (!context.selected_plan_id || !context.feasibility) {
-    return false
-  }
+  return Boolean(context.selected_plan_id)
+}
 
-  return context.feasibility.plans.some(
-    (plan: FeasibilityPlan) => plan.id === context.selected_plan_id
-  )
+const hasScopeBaselinePointer = (context: DecisionContext): boolean => {
+  return Boolean(context.current_scope_baseline_id)
 }
 
 export const canRunFeasibility = (context: DecisionContext): boolean => {
@@ -15,9 +13,9 @@ export const canRunFeasibility = (context: DecisionContext): boolean => {
 }
 
 export const canOpenScope = (context: DecisionContext): boolean => {
-  return Boolean(context.selected_plan_id && context.feasibility && hasSelectedPlan(context))
+  return hasSelectedPlan(context)
 }
 
 export const canOpenPrd = (context: DecisionContext): boolean => {
-  return Boolean(hasSelectedPlan(context) && context.scope)
+  return Boolean(hasSelectedPlan(context) && (hasScopeBaselinePointer(context) || context.scope))
 }

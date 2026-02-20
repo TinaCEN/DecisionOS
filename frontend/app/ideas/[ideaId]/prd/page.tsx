@@ -5,14 +5,18 @@ type PrdScopedPageProps = {
   params: Promise<{
     ideaId: string
   }>
+  searchParams: Promise<{
+    baseline_id?: string
+  }>
 }
 
-export default async function PrdScopedPage({ params }: PrdScopedPageProps) {
+export default async function PrdScopedPage({ params, searchParams }: PrdScopedPageProps) {
   const { ideaId } = await params
+  const { baseline_id: baselineId } = await searchParams
 
   return (
     <IdeaScopedHydration ideaId={ideaId}>
-      <PrdPage />
+      <PrdPage baselineId={baselineId ?? null} />
     </IdeaScopedHydration>
   )
 }
