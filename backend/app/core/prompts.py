@@ -4,7 +4,8 @@ import json
 
 SYSTEM_PROMPT = (
     "You are the DecisionOS backend planner. Always return strict JSON matching the requested schema. "
-    "Never include markdown or extra prose."
+    "Never include markdown or extra prose. "
+    "All generated content (node text, labels, summaries) MUST be written in English."
 )
 
 
@@ -90,7 +91,8 @@ def expand_node_prompt(
     chain_summary: str,
 ) -> str:
     return (
-        "You are a product thinking assistant helping explore an idea through structured lenses.\n\n"
+        "You are a product thinking assistant helping explore an idea through structured lenses.\n"
+        "All output — node content, edge labels, and any text — MUST be in English.\n\n"
         f"Current idea node:\n{content}\n\n"
         f"Path so far:\n{chain_summary}\n\n"
         f"Expansion lens: {pattern_label} — {pattern_description}\n\n"
@@ -107,7 +109,8 @@ def expand_node_user_prompt(
     chain_summary: str,
 ) -> str:
     return (
-        "You are a product thinking assistant.\n\n"
+        "You are a product thinking assistant.\n"
+        "All output — node content, edge labels, and any text — MUST be in English.\n\n"
         f"Current idea node:\n{content}\n\n"
         f"Path so far:\n{chain_summary}\n\n"
         f"User's direction: {user_direction}\n\n"
@@ -121,7 +124,8 @@ def expand_node_user_prompt(
 def summarize_path_prompt(node_chain_text: str) -> str:
     return (
         "Summarize this idea evolution chain in 2-3 sentences, "
-        "explaining the reasoning arc from start to finish:\n\n"
+        "explaining the reasoning arc from start to finish.\n"
+        "The summary MUST be written in English.\n\n"
         f"{node_chain_text}\n\n"
         'Return a JSON object: {"summary": "<your summary paragraph>"}'
     )

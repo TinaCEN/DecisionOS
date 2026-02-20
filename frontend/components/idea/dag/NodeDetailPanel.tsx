@@ -33,7 +33,7 @@ export function NodeDetailPanel({
   if (!node) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-[#64748B]">
-        点击节点查看详情
+        Click a node to view details
       </div>
     )
   }
@@ -46,12 +46,12 @@ export function NodeDetailPanel({
     >
       <div>
         <div className="mb-1 text-xs text-[#64748B]">
-          {node.edge_label ?? '根节点'} · 深度 {node.depth}
+          {node.edge_label ?? 'Root'} · Depth {node.depth}
         </div>
         <p className="text-sm leading-relaxed text-[#F8FAFC]">{node.content}</p>
       </div>
 
-      <div className="text-xs text-[#475569]">链路长度：{pathChain.length} 跳</div>
+      <div className="text-xs text-[#475569]">Path length: {pathChain.length} hops</div>
 
       <div className="border-t border-[#1E293B]" />
 
@@ -63,21 +63,21 @@ export function NodeDetailPanel({
               disabled={loading || isConfirmed}
               className="w-full cursor-pointer rounded-lg border border-[#334155] bg-[#1E293B] px-3 py-2 text-sm text-[#F8FAFC] transition-all hover:border-[#22C55E] disabled:opacity-50"
             >
-              AI 扩展
+              AI Expand
             </button>
             <button
               onClick={() => setMode('user-expand')}
               disabled={loading || isConfirmed}
               className="w-full cursor-pointer rounded-lg border border-[#334155] bg-[#1E293B] px-3 py-2 text-sm text-[#F8FAFC] transition-all hover:border-[#64748B] disabled:opacity-50"
             >
-              我来写方向
+              Write My Own
             </button>
           </motion.div>
         )}
 
         {mode === 'ai-expand' && (
           <motion.div key="ai" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="mb-2 text-xs text-[#64748B]">选择扩展维度</div>
+            <div className="mb-2 text-xs text-[#64748B]">Choose expansion lens</div>
             <ExpansionPatternPicker
               onSelect={async (id) => {
                 await onExpandAI(id)
@@ -89,7 +89,7 @@ export function NodeDetailPanel({
               onClick={() => setMode('idle')}
               className="mt-2 cursor-pointer text-xs text-[#475569] hover:text-[#64748B]"
             >
-              取消
+              Cancel
             </button>
           </motion.div>
         )}
@@ -104,7 +104,7 @@ export function NodeDetailPanel({
             <textarea
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
-              placeholder="描述你想探索的方向..."
+              placeholder="Describe the direction you want to explore..."
               rows={3}
               className="w-full resize-none rounded-lg border border-[#334155] bg-[#1E293B] px-3 py-2 text-sm text-[#F8FAFC] placeholder-[#475569] focus:border-[#64748B] focus:outline-none"
             />
@@ -120,13 +120,13 @@ export function NodeDetailPanel({
                 disabled={loading || !userInput.trim()}
                 className="flex-1 cursor-pointer rounded-lg border border-[#22C55E]/40 bg-[#22C55E]/10 py-2 text-sm text-[#22C55E] transition-all hover:bg-[#22C55E]/20 disabled:opacity-50"
               >
-                生成
+                Generate
               </button>
               <button
                 onClick={() => setMode('idle')}
                 className="cursor-pointer rounded-lg border border-[#334155] px-3 py-2 text-sm text-[#64748B] hover:border-[#64748B]"
               >
-                取消
+                Cancel
               </button>
             </div>
           </motion.div>
@@ -139,10 +139,10 @@ export function NodeDetailPanel({
           disabled={loading || isConfirmed}
           className="w-full cursor-pointer rounded-lg bg-[#22C55E] px-3 py-2.5 text-sm font-semibold text-[#0F172A] transition-all hover:bg-[#16A34A] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isConfirmed ? '路径已确认' : '确认此路径'}
+          {isConfirmed ? 'Path Confirmed ✓' : 'Confirm This Path'}
         </button>
         {!isConfirmed && (
-          <p className="mt-1 text-center text-xs text-[#475569]">确认后进入 Feasibility 分析</p>
+          <p className="mt-1 text-center text-xs text-[#475569]">Confirms and opens Feasibility</p>
         )}
       </div>
     </motion.div>

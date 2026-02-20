@@ -37,9 +37,9 @@ class IdeaPathOut(BaseModel):
 
 
 EXPANSION_PATTERNS: list[dict[str, str]] = [
-    {"id": "narrow_users", "label": "缩小用户群体", "description": "针对更精准的细分用户群重新定义问题"},
-    {"id": "expand_features", "label": "功能边界扩展", "description": "在核心功能基础上延伸出相邻能力"},
-    {"id": "shift_scenario", "label": "场景迁移", "description": "将此 idea 迁移至不同使用场景"},
-    {"id": "monetize", "label": "商业模式变体", "description": "探索不同的商业化路径"},
-    {"id": "simplify", "label": "极简核心", "description": "只保留最小可行内核，砍掉所有附加物"},
+    {"id": "narrow_users", "label": "Narrow the Audience", "description": "Redefine the problem for a more precise user segment"},
+    {"id": "expand_features", "label": "Expand Feature Scope", "description": "Extend adjacent capabilities beyond the core feature"},
+    {"id": "shift_scenario", "label": "Shift the Scenario", "description": "Apply this idea to a different usage context"},
+    {"id": "monetize", "label": "Monetization Variants", "description": "Explore alternative business model paths"},
+    {"id": "simplify", "label": "Simplify to Core", "description": "Strip everything away — keep only the minimal viable kernel"},
 ]
