@@ -436,6 +436,18 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
     def test_delete_idea_not_found_returns_404(self) -> None:
         r_status, r_body = self.client.request_json("DELETE", "/ideas/nonexistent-id")
         self.assertEqual(r_status, 404)
+        assert r_body is not None
+        detail = r_body["detail"]
+        self.assertEqual(detail["code"], "IDEA_NOT_FOUND")
+
+    def test_delete_idea_second_delete_returns_404(self) -> None:
+        r_first = self.client.request_raw("DELETE", f"/ideas/{self.idea_id}")
+        self.assertEqual(r_first.status_code, 204)
+        r_status, r_body = self.client.request_json("DELETE", f"/ideas/{self.idea_id}")
+        self.assertEqual(r_status, 404)
+        assert r_body is not None
+        detail = r_body["detail"]
+        self.assertEqual(detail["code"], "IDEA_NOT_FOUND")
 
     def test_delete_idea_get_returns_404_after_delete(self) -> None:
         self.client.request_raw("DELETE", f"/ideas/{self.idea_id}")

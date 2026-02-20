@@ -94,10 +94,7 @@ async def delete_idea(idea_id: str) -> None:
     try:
         _repo.delete_idea(idea_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "IDEA_NOT_FOUND", "message": f"Idea {idea_id} not found"},
-        )
+        _raise_not_found(idea_id)
 
 
 def _parse_statuses(raw: list[str] | None) -> list[IdeaStatus]:
