@@ -114,3 +114,60 @@ class IdeasRepoTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# pytest-style delete_idea tests
+# ---------------------------------------------------------------------------
+import os
+import pytest
+from app.db.bootstrap import initialize_database, DEFAULT_WORKSPACE_ID
+from app.db.repo_ideas import IdeaRepository
+from app.db import repo_dag as _repo_dag
+
+
+@pytest.fixture(autouse=True)
+def fresh_db(tmp_path):
+    os.environ["DECISIONOS_DB_PATH"] = str(tmp_path / "test.db")
+    from app.core.settings import get_settings
+    get_settings.cache_clear()
+    initialize_database()
+
+
+def _make_idea():
+    repo = IdeaRepository()
+    return repo.create_idea(title="Test Idea", idea_seed="seed")
+
+
+# --- delete_idea tests ---
+
+def test_delete_idea_removes_row():
+    repo = IdeaRepository()
+    idea = _make_idea()
+    repo.delete_idea(idea.id)
+    assert repo.get_idea(idea.id) is None
+
+
+def test_delete_idea_cascades_nodes_and_paths():
+    repo = IdeaRepository()
+    idea = _make_idea()
+    root = _repo_dag.create_node(idea_id=idea.id, content="root")
+    child = _repo_dag.create_node(idea_id=idea.id, content="child", parent_id=root.id)
+    _repo_dag.create_path(
+        idea_id=idea.id,
+        node_chain=[root.id, child.id],
+        path_md="# Path",
+        path_json='{"node_chain":[]}',
+    )
+    assert len(_repo_dag.list_nodes(idea.id)) == 2
+    assert _repo_dag.get_latest_path(idea.id) is not None
+    repo.delete_idea(idea.id)
+    assert repo.get_idea(idea.id) is None
+    assert _repo_dag.list_nodes(idea.id) == []
+    assert _repo_dag.get_latest_path(idea.id) is None
+
+
+def test_delete_idea_not_found_raises():
+    repo = IdeaRepository()
+    with pytest.raises(KeyError):
+        repo.delete_idea("nonexistent-id")

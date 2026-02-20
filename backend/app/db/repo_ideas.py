@@ -102,6 +102,16 @@ class IdeaRepository:
                 return None
             return _row_to_idea(row)
 
+    def delete_idea(self, idea_id: str) -> None:
+        """Hard-delete idea and all associated nodes/paths. Raises KeyError if not found."""
+        with db_session() as connection:
+            row = connection.execute("SELECT id FROM idea WHERE id = ?", (idea_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"Idea {idea_id!r} not found")
+            connection.execute("DELETE FROM idea_nodes WHERE idea_id = ?", (idea_id,))
+            connection.execute("DELETE FROM idea_paths WHERE idea_id = ?", (idea_id,))
+            connection.execute("DELETE FROM idea WHERE id = ?", (idea_id,))
+
     def list_ideas(
         self,
         *,

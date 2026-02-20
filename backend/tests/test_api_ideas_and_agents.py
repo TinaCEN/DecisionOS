@@ -19,6 +19,7 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
 
         get_settings.cache_clear()
         self.client = _AsgiTestClient(create_app())
+        self.idea_id, _ = self._create_idea("Delete Test Idea")
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
@@ -444,6 +445,40 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         self.assertEqual(final_detail["context"]["confirmed_dag_node_content"], "Guard DAG node content")
         self.assertIsNone(final_detail["context"]["selected_direction_id"])
         self.assertIsNone(final_detail["context"]["path_id"])
+
+
+    def test_delete_idea_returns_204(self) -> None:
+        r = self.client.request_raw("DELETE", f"/ideas/{self.idea_id}")
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(r.body, b"")
+
+    def test_delete_idea_removes_from_list(self) -> None:
+        self.client.request_raw("DELETE", f"/ideas/{self.idea_id}")
+        r_status, r_body = self.client.request_json("GET", "/ideas")
+        assert r_body is not None
+        ids = [i["id"] for i in r_body["items"]]
+        self.assertNotIn(self.idea_id, ids)
+
+    def test_delete_idea_not_found_returns_404(self) -> None:
+        r_status, r_body = self.client.request_json("DELETE", "/ideas/nonexistent-id")
+        self.assertEqual(r_status, 404)
+        assert r_body is not None
+        detail = r_body["detail"]
+        self.assertEqual(detail["code"], "IDEA_NOT_FOUND")
+
+    def test_delete_idea_second_delete_returns_404(self) -> None:
+        r_first = self.client.request_raw("DELETE", f"/ideas/{self.idea_id}")
+        self.assertEqual(r_first.status_code, 204)
+        r_status, r_body = self.client.request_json("DELETE", f"/ideas/{self.idea_id}")
+        self.assertEqual(r_status, 404)
+        assert r_body is not None
+        detail = r_body["detail"]
+        self.assertEqual(detail["code"], "IDEA_NOT_FOUND")
+
+    def test_delete_idea_get_returns_404_after_delete(self) -> None:
+        self.client.request_raw("DELETE", f"/ideas/{self.idea_id}")
+        r_status, r_body = self.client.request_json("GET", f"/ideas/{self.idea_id}")
+        self.assertEqual(r_status, 404)
 
 
 @dataclass(frozen=True)

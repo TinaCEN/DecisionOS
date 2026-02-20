@@ -13,8 +13,11 @@ export function IdeasDashboard() {
   const loadIdeas = useIdeasStore((state) => state.loadIdeas)
   const createIdea = useIdeasStore((state) => state.createIdea)
   const setActiveIdeaId = useIdeasStore((state) => state.setActiveIdeaId)
+  const deleteIdea = useIdeasStore((state) => state.deleteIdea)
 
   const [title, setTitle] = useState('')
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     void loadIdeas()
@@ -74,37 +77,98 @@ export function IdeasDashboard() {
             return (
               <article
                 key={idea.id}
-                className={`rounded-xl border p-4 ${
+                className={`group relative rounded-xl border p-4 ${
                   isActive ? 'border-cyan-400 bg-cyan-50/70' : 'border-slate-200 bg-white'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-slate-900">{idea.title}</h2>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Stage: {idea.stage} · Status: {idea.status}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Updated: {idea.updated_at.slice(0, 16)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveIdeaId(idea.id)}
-                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConfirmingId(idea.id)
+                  }}
+                  className="absolute top-3 right-3 rounded p-1 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
+                  aria-label="Delete idea"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
                   >
-                    {isActive ? 'Active' : 'Set Active'}
-                  </button>
-                </div>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    />
+                  </svg>
+                </button>
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Link
-                    href={`/ideas/${idea.id}/idea-canvas`}
-                    className="rounded-md border border-cyan-300 bg-cyan-50 px-2 py-1 text-xs font-medium text-cyan-800"
-                  >
-                    Open Flow
-                  </Link>
-                </div>
+                {confirmingId === idea.id ? (
+                  <div className="flex flex-col gap-3 p-4">
+                    <p className="text-sm text-slate-900">
+                      Delete <span className="font-semibold">{idea.title}</span>?
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      This cannot be undone. All nodes and paths will be removed.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setConfirmingId(null)}
+                        disabled={deleting}
+                        className="flex-1 rounded-lg border border-[#334155] py-2 text-sm text-[#94A3B8] hover:border-[#475569] disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setDeleting(true)
+                          try {
+                            await deleteIdea(idea.id)
+                            setConfirmingId(null)
+                          } finally {
+                            setDeleting(false)
+                          }
+                        }}
+                        disabled={deleting}
+                        className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {deleting ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className="text-sm font-semibold text-slate-900">{idea.title}</h2>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Stage: {idea.stage} · Status: {idea.status}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Updated: {idea.updated_at.slice(0, 16)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveIdeaId(idea.id)}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        {isActive ? 'Active' : 'Set Active'}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={`/ideas/${idea.id}/idea-canvas`}
+                        className="rounded-md border border-cyan-300 bg-cyan-50 px-2 py-1 text-xs font-medium text-cyan-800"
+                      >
+                        Open Flow
+                      </Link>
+                    </div>
+                  </>
+                )}
               </article>
             )
           })}

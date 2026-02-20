@@ -84,6 +84,18 @@ export const jsonPatch = async <TRequest, TResponse>(
   return (await response.json()) as TResponse
 }
 
+export const jsonDelete = async (path: string, init?: RequestInit): Promise<void> => {
+  const response = await fetch(buildApiUrl(path), {
+    method: 'DELETE',
+    ...init,
+  })
+
+  if (!response.ok) {
+    const reason = await response.text().catch(() => '')
+    throw new Error(`Request failed with ${response.status}${reason ? `: ${reason}` : ''}`)
+  }
+}
+
 const buildIdeasQuery = (status?: IdeaStatus[]): string => {
   if (!status || !status.length) {
     return '/ideas'
@@ -119,6 +131,10 @@ export const patchIdeaContext = async (
   payload: PatchIdeaContextRequest
 ): Promise<IdeaDetail> => {
   return await jsonPatch<PatchIdeaContextRequest, IdeaDetail>(`/ideas/${ideaId}/context`, payload)
+}
+
+export const deleteIdea = async (ideaId: string): Promise<void> => {
+  await jsonDelete(`/ideas/${ideaId}`)
 }
 
 export const getAiSettings = async (): Promise<AISettings> => {

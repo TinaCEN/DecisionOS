@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { createIdea, getIdea, listIdeas } from './api'
+import { createIdea, deleteIdea, getIdea, listIdeas } from './api'
 import type { IdeaDetail, IdeaSummary } from './schemas'
 
 type IdeasStoreState = {
@@ -17,6 +17,7 @@ type IdeasStoreState = {
   loadIdeas: () => Promise<void>
   createIdea: (title: string) => Promise<void>
   loadIdeaDetail: (ideaId: string) => Promise<IdeaDetail | null>
+  deleteIdea: (ideaId: string) => Promise<void>
 }
 
 const pickDefaultActiveIdea = (
@@ -96,6 +97,16 @@ export const useIdeasStore = create<IdeasStoreState>()(
           const message = error instanceof Error ? error.message : 'Failed to load idea.'
           set({ loading: false, error: message })
           return null
+        }
+      },
+      deleteIdea: async (ideaId) => {
+        set({ loading: true, error: null })
+        try {
+          await deleteIdea(ideaId)
+          set((s) => ({ loading: false, ideas: s.ideas.filter((i) => i.id !== ideaId) }))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to delete idea.'
+          set({ loading: false, error: message })
         }
       },
     }),
