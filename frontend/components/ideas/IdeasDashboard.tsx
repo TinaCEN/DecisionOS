@@ -17,6 +17,7 @@ export function IdeasDashboard() {
 
   const [title, setTitle] = useState('')
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     void loadIdeas()
@@ -115,18 +116,25 @@ export function IdeasDashboard() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => setConfirmingId(null)}
-                        className="flex-1 rounded-lg border border-slate-300 py-2 text-sm text-slate-600 hover:border-slate-400"
+                        disabled={deleting}
+                        className="flex-1 rounded-lg border border-[#334155] py-2 text-sm text-[#94A3B8] hover:border-[#475569] disabled:opacity-50"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={async () => {
-                          await deleteIdea(idea.id)
-                          setConfirmingId(null)
+                          setDeleting(true)
+                          try {
+                            await deleteIdea(idea.id)
+                            setConfirmingId(null)
+                          } finally {
+                            setDeleting(false)
+                          }
                         }}
-                        className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                        disabled={deleting}
+                        className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Delete
+                        {deleting ? 'Deleting…' : 'Delete'}
                       </button>
                     </div>
                   </div>
