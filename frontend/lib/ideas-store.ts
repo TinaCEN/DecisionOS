@@ -100,8 +100,14 @@ export const useIdeasStore = create<IdeasStoreState>()(
         }
       },
       deleteIdea: async (ideaId) => {
-        await deleteIdea(ideaId)
-        set((s) => ({ ideas: s.ideas.filter((i) => i.id !== ideaId) }))
+        set({ loading: true, error: null })
+        try {
+          await deleteIdea(ideaId)
+          set((s) => ({ loading: false, ideas: s.ideas.filter((i) => i.id !== ideaId) }))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to delete idea.'
+          set({ loading: false, error: message })
+        }
       },
     }),
     {
