@@ -48,7 +48,7 @@
 
 - `id`, `idea_id`, `parent_id` (NULL = root)
 - `content`, `expansion_pattern`, `edge_label`, `depth`
-- `status` (`active` | `deleted`), `created_at`
+- `status` (`active` only — `confirmed` and `pruned` are reserved but not yet used in application logic), `created_at`
 
 ### IdeaPath (Confirmed Decision Path)
 
@@ -95,8 +95,31 @@ Agent 契约：
 
 - `idea_id` 仅存在于 route，不在 request body 重复。
 - mutating request 必须携带 `version`。
-- response 使用固定 envelope：`{ idea_id, idea_version, data }`。
-- SSE 仅在 `done` 事件落库并 bump 版本，`partial` 事件不落库；`done` 落库必须做 compare-and-swap（version 一致性检查）。
+- **普通 agent SSE**（opportunity/feasibility stream）response 使用固定 envelope：`{ idea_id, idea_version, data }`，`done` 事件落库并 bump 版本，`partial` 事件不落库；`done` 落库必须做 compare-and-swap（version 一致性检查）。
+- **DAG 扩展 SSE**（`/nodes/{node_id}/expand/stream`）使用不同格式（named events），**不**携带 `idea_version`，**不** bump 版本：
+
+  ```
+  event: progress
+  data: {"step": "generating", "pct": 10}
+
+  event: done
+  data: {"idea_id": "...", "nodes": [{...IdeaNodeOut...}]}
+
+  event: error
+  data: {"code": "EXPAND_FAILED", "message": "..."}
+  ```
+
+  前端通过 `streamPost` 工具函数消费此 SSE，而非 `EventSource`。
+
+DAG 路径确认副作用：
+
+- `POST /ideas/{idea_id}/paths` 在创建 `idea_paths` 行后，会通过 `apply_agent_update` 将 `confirmed_dag_path_id` 写入 `idea.context_json`。
+- `confirmed_dag_path_id` 是解锁 Feasibility 阶段的唯一条件：`infer_stage_from_context` 检测到此字段非 null 时返回 `"feasibility"`；前端 `canRunFeasibility` 直接检查该字段。
+
+已知坑（历史 bug 记录，供未来 agent 参考）：
+
+- **React 18 StrictMode 双重 mount**：`useEffect` 在 dev 模式下会执行两次。如果 init effect 内含异步创建操作（如 `createRootNode`），两次执行均可能在首次响应返回前看到"无节点"状态，导致双重创建。解决方案：(1) 在 cleanup 函数中设置 `cancelled` flag 并在 async 函数内检查；(2) 后端 `POST /ideas/{idea_id}/nodes` 做幂等处理（若已有节点则返回现有根节点）。两者都必须同时存在。
+- **空 ideaSeed 导致 422**：新建 idea 时 `idea.idea_seed` 可能为 `null`。页面传递给 `IdeaDAGCanvas` 时必须使用 `idea.idea_seed ?? idea.title` 作为 fallback，否则会向后端发送空字符串，触发 `CreateRootNodeRequest.content` 的 `min_length=1` 校验失败。
 
 ## 5. Vector Search Readiness (Reserved)
 

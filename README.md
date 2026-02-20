@@ -80,9 +80,11 @@ export LLM_MODE=auto  # default; set mock to force deterministic mock-only mode
 export DECISIONOS_SECRET_KEY="replace-with-strong-secret"
 ```
 
-AI routing behavior:
+AI provider behavior:
 
-- If a task routing list is empty, backend will try all enabled providers in order as fallback.
+- Exactly **one** provider may be `enabled: true` at a time. The `PATCH /settings/ai` endpoint returns `422` if more than one provider is enabled simultaneously.
+- The active provider is selected by `_get_active_provider()` in `ai_gateway.py`. If no provider is enabled, all AI calls raise `RuntimeError` with a user-friendly message.
+- The frontend enforces radio-button semantics: clicking "Set Active" on a provider disables all others before enabling the chosen one.
 
 Type checking:
 
@@ -100,3 +102,27 @@ UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python mypy app
 - Idea Canvas is powered by a DAG (Directed Acyclic Graph) using `@xyflow/react`. Components live in `frontend/components/idea/dag/`.
 - DAG expansion patterns are hardcoded in `backend/app/schemas/dag.py` (`EXPANSION_PATTERNS`): 缩小用户群体, 功能边界扩展, 场景迁移, 商业模式变体, 极简核心.
 - Confirmed paths (`idea_paths`) store both `path_md` (Markdown, LLM-ready context) and `path_json` (structured, for cross-idea analysis) for use in downstream stages.
+- `confirmed_dag_path_id` is stamped onto `idea.context_json` by the `POST /ideas/{idea_id}/paths` endpoint. This field gates the Feasibility stage: `canRunFeasibility` in `frontend/lib/guards.ts` returns `true` only when this field is set. After confirming a path, the UI automatically navigates to `/ideas/{ideaId}/feasibility`.
+- `POST /ideas/{idea_id}/nodes` (create root node) is **idempotent**: if nodes already exist for the idea, the endpoint returns the existing root node instead of creating a duplicate. This prevents the duplicate root node bug caused by React 18 StrictMode double-mounting `useEffect`.
+- The `IdeaDAGCanvas` init `useEffect` uses a `cancelled` flag in its cleanup to prevent async race conditions in React 18 StrictMode. Both the frontend flag and backend idempotency are required as defence-in-depth.
+- The `idea-canvas` page passes `idea.idea_seed ?? idea.title` as `ideaSeed` to `IdeaDAGCanvas`. Without this fallback, new ideas with `idea_seed = null` would pass an empty string and trigger a `422` from the backend (which enforces `min_length=1` on `CreateRootNodeRequest.content`).
+
+## DAG SSE Event Format
+
+The DAG expand stream (`POST /ideas/{idea_id}/nodes/{node_id}/expand/stream`) uses named SSE events, **not** the general agent envelope:
+
+```
+event: progress
+data: {"step": "generating", "pct": 10}
+
+event: progress
+data: {"step": "persisting", "pct": 70}
+
+event: done
+data: {"idea_id": "...", "nodes": [{...IdeaNodeOut...}]}
+
+event: error
+data: {"code": "EXPAND_FAILED", "message": "..."}
+```
+
+This differs from the opportunity/feasibility agent SSE streams which use a general envelope `{idea_id, idea_version, data}`. The DAG SSE does **not** bump `idea_version`.

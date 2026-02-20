@@ -18,18 +18,18 @@
 
 - Do **not** modify existing `workspace`, `idea`, or `ai_settings` tables.
 - Do **not** change existing `/ideas/*` or `/settings/ai` route behaviour.
-- Do **not** change existing SSE envelope `{idea_id, idea_version, data}`.
+- Do **not** change existing agent SSE envelope `{idea_id, idea_version, data}` — note: the DAG expand SSE uses a **different** named-event format (see API section below).
 - Legacy `/agents/*` routes remain `410 Gone`.
 
 ---
 
 ## Acceptance Criteria
 
-1. User can submit a root idea → root `idea_node` is created and displayed.
+1. User can submit a root idea → root `idea_node` is created and displayed. `POST /ideas/{idea_id}/nodes` is idempotent (returns existing root if present).
 2. Selecting a node opens Node Detail Panel with three actions.
 3. [AI 扩展] → pick an expansion pattern → AI generates 1-3 child nodes via SSE.
-4. [我来写] → inline input → AI generates child node from user description.
-5. [确认路径] → `idea_paths` row written; `idea.context_json` updated; UI transitions to Feasibility.
+4. [我来写] → inline textarea in NodeDetailPanel → AI generates child node from user description.
+5. [确认路径] → `idea_paths` row written; `confirmed_dag_path_id` stamped on `idea.context_json`; UI navigates to `/ideas/{ideaId}/feasibility`. Confirmed state persists across refreshes (restored from `GET /ideas/{idea_id}/paths/latest`).
 6. All new backend endpoints have passing pytest tests.
 7. No TypeScript errors (`pnpm tsc --noEmit`).
 8. Responsive at 375 px and 1440 px.
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS idea_nodes (
     expansion_pattern TEXT,          -- one of the 5 pattern ids, NULL for root/user-written
     edge_label        TEXT,          -- human-readable edge description
     depth             INTEGER NOT NULL DEFAULT 0,
-    status            TEXT NOT NULL DEFAULT 'active',   -- active | confirmed | pruned
+    status            TEXT NOT NULL DEFAULT 'active',   -- active (confirmed/pruned reserved but unused)
     created_at        TEXT NOT NULL
 );
 
@@ -91,11 +91,25 @@ CREATE TABLE IF NOT EXISTS idea_paths (
 | POST   | `/ideas/{idea_id}/paths`                         | Confirm path, write snapshot |
 | GET    | `/ideas/{idea_id}/paths/latest`                  | Get latest confirmed path    |
 
-### SSE Expand envelope (consistent with existing pattern)
+### SSE Expand format (DAG-specific named events)
 
-```json
-{ "idea_id": "...", "idea_version": 2, "data": { "nodes": [...] } }
+**Note:** The DAG expand SSE does NOT use the general agent envelope `{idea_id, idea_version, data}`. It uses named SSE events and does **not** bump `idea_version`:
+
 ```
+event: progress
+data: {"step": "generating", "pct": 10}
+
+event: progress
+data: {"step": "persisting", "pct": 70}
+
+event: done
+data: {"idea_id": "...", "nodes": [{...IdeaNodeOut fields...}]}
+
+event: error
+data: {"code": "EXPAND_FAILED", "message": "..."}
+```
+
+The frontend consumes this via the `streamPost` utility (not `EventSource`). The `onDone` callback receives the `done` event payload with the `nodes` array.
 
 ### Path snapshot `path_json` structure
 
@@ -133,12 +147,12 @@ frontend/
   components/
     idea/
       dag/
-        IdeaDAGCanvas.tsx      ← replaces IdeaCanvas.tsx (keep old file, rename usage)
-        NodeDetailPanel.tsx    ← right panel: browse/expand/confirm
+        IdeaDAGCanvas.tsx      ← main canvas; init useEffect uses cancelled flag (StrictMode safety)
+        NodeDetailPanel.tsx    ← right panel: browse/expand/confirm; user-expand textarea is inline here
         ExpansionPatternPicker.tsx  ← 5-card pattern selector
-        UserExpandInput.tsx    ← inline textarea for user-guided expand
         DAGNode.tsx            ← custom React Flow node renderer
         DAGEdge.tsx            ← custom React Flow edge renderer
+        (UserExpandInput.tsx not created — user-expand textarea is inline in NodeDetailPanel)
   lib/
     dag-store.ts               ← Zustand slice for node/path state
     dag-api.ts                 ← typed API calls for new endpoints
@@ -1583,3 +1597,52 @@ cd frontend && pnpm tsc --noEmit
 | `LLM_MODE`              | `auto`                            | Set to `mock` for tests |
 | `DECISIONOS_DB_PATH`    | `./decisionos.db`                 | SQLite file path        |
 | `DECISIONOS_SECRET_KEY` | `decisionos-dev-secret-change-me` | Encryption key          |
+
+---
+
+## Post-Implementation Bug Notes
+
+These bugs were found after the initial implementation. Documented here to prevent future agents from repeating them.
+
+### Bug 1: Empty canvas on new idea creation
+
+**Symptom:** After creating a new idea and navigating to idea-canvas, the canvas was empty (no root node visible).
+
+**Root cause:** New ideas have `idea_seed = null` in the database. The page was passing `idea.idea_seed` directly to `IdeaDAGCanvas` as `ideaSeed`, so the prop was `null` (coerced to empty string `""`). The frontend then called `createRootNode(ideaId, "")`. The backend accepted the empty string (no validation at the time), creating a node with blank `content`.
+
+**Fix:**
+
+1. `frontend/app/ideas/[ideaId]/idea-canvas/page.tsx`: changed to `idea.idea_seed ?? idea.title` so there is always a meaningful fallback.
+2. `backend/app/schemas/dag.py`: added `Field(min_length=1)` to `CreateRootNodeRequest.content` so the backend rejects empty strings with 422 as a safety net.
+
+### Bug 2: Two root nodes appearing after refresh
+
+**Symptom:** First visit to idea-canvas showed one root node. Refreshing or re-navigating showed two root nodes, each with the same content.
+
+**Root cause:** React 18 StrictMode runs `useEffect` twice in dev mode (mount → unmount → remount). The init effect in `IdeaDAGCanvas` did:
+
+1. `listNodes(ideaId)` → empty array (first async call)
+2. `createRootNode(ideaId, ideaSeed)` → node created
+
+Because of the double-mount, this sequence ran twice. On the second mount, `listNodes` was called while the first `createRootNode` was still in flight. Both invocations saw an empty node list and both called `createRootNode`, creating two root nodes.
+
+Diagnosed using Playwright: two `POST /ideas/{id}/nodes` requests were visible in the network tab.
+
+**Fix (two-layer defence):**
+
+1. **Frontend** (`IdeaDAGCanvas.tsx`): Added `let cancelled = false` before the async IIFE, `return () => { cancelled = true }` as cleanup, and `if (cancelled) return` checks after each await. This prevents the second (cleanup-cancelled) mount from persisting its results.
+2. **Backend** (`backend/app/routes/idea_dag.py` — `create_root_node`): Made idempotent — if nodes already exist for the idea, returns the existing root node instead of inserting a new one. This guards against any client that doesn't implement the cancellation flag.
+
+Both fixes are required. The frontend fix prevents the double call in normal usage; the backend fix is the safety net for edge cases and existing duplicate data.
+
+**Cleanup:** After identifying the bug, 5 duplicate root nodes that had already been created in the development database were removed manually.
+
+### Confirm path side effect (not in original plan)
+
+**`POST /ideas/{idea_id}/paths` does more than create a path row.** After persisting the `idea_paths` record, it stamps `confirmed_dag_path_id` onto `idea.context_json` via `apply_agent_update`. This field is what unlocks the Feasibility stage:
+
+- `backend/app/core/contexts.py` — `infer_stage_from_context`: returns `"feasibility"` if `confirmed_dag_path_id is not None`
+- `frontend/lib/guards.ts` — `canRunFeasibility`: returns `Boolean(context.confirmed_dag_path_id)`
+- `frontend/lib/schemas.ts` — `decisionContextSchema`: includes `confirmed_dag_path_id: z.string().optional()`
+
+After confirming, `IdeaDAGCanvas.handleConfirmPath` navigates to `/ideas/{ideaId}/feasibility`. On next page load, the canvas init effect calls `getLatestPath(ideaId)` and restores `confirmedPath` in the Zustand store, so the "路径已确认 ✓" state persists across refreshes.
