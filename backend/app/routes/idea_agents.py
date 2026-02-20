@@ -181,8 +181,10 @@ def _apply_feasibility(
     output: FeasibilityOutput,
 ) -> DecisionContext:
     context.idea_seed = payload.idea_seed
-    context.selected_direction_id = payload.direction_id
-    context.path_id = payload.path_id
+    context.confirmed_dag_path_id = payload.confirmed_path_id
+    context.confirmed_dag_node_id = payload.confirmed_node_id
+    context.confirmed_dag_node_content = payload.confirmed_node_content
+    context.confirmed_dag_path_summary = payload.confirmed_path_summary
     context.feasibility = output
     context.selected_plan_id = None
     context.scope = None
@@ -197,8 +199,10 @@ def _apply_scope(
     output: ScopeOutput,
 ) -> DecisionContext:
     context.idea_seed = payload.idea_seed
-    context.selected_direction_id = payload.direction_id
-    context.path_id = payload.path_id
+    context.confirmed_dag_path_id = payload.confirmed_path_id
+    context.confirmed_dag_node_id = payload.confirmed_node_id
+    context.confirmed_dag_node_content = payload.confirmed_node_content
+    context.confirmed_dag_path_summary = payload.confirmed_path_summary
     context.selected_plan_id = payload.selected_plan_id
     context.feasibility = payload.feasibility
     context.scope = output
@@ -212,6 +216,10 @@ def _apply_prd(
     output: PRDOutput,
 ) -> DecisionContext:
     context.idea_seed = payload.idea_seed
+    context.confirmed_dag_path_id = payload.confirmed_path_id
+    context.confirmed_dag_node_id = payload.confirmed_node_id
+    context.confirmed_dag_node_content = payload.confirmed_node_content
+    context.confirmed_dag_path_summary = payload.confirmed_path_summary
     context.selected_plan_id = payload.selected_plan_id
     context.scope = payload.scope
     context.prd = output

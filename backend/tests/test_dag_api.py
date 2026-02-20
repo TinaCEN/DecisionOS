@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from dataclasses import dataclass
+from unittest.mock import patch
 
 
 class DagApiTestCase(unittest.TestCase):
@@ -110,6 +111,81 @@ class DagApiTestCase(unittest.TestCase):
         assert body is not None
         self.assertIn("path_md", body)
         self.assertIn("path_json", body)
+
+        detail_status, detail = self.client.request_json("GET", f"/ideas/{idea_id}")
+        self.assertEqual(detail_status, 200)
+        assert detail is not None
+        context = detail["context"]
+        self.assertEqual(context["confirmed_dag_path_id"], body["id"])
+        self.assertEqual(context["confirmed_dag_node_id"], root["id"])
+        self.assertEqual(context["confirmed_dag_node_content"], root["content"])
+        self.assertIn("confirmed_dag_path_summary", context)
+
+    def test_confirm_path_update_conflict_returns_409(self) -> None:
+        from app.db.repo_ideas import UpdateIdeaResult
+
+        idea_id = self._create_idea()
+        _, root = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        assert root is not None
+
+        with patch(
+            "app.routes.idea_dag._repo.apply_agent_update",
+            return_value=UpdateIdeaResult(kind="conflict"),
+        ):
+            status, body = self.client.request_json(
+                "POST",
+                f"/ideas/{idea_id}/paths",
+                {"node_chain": [root["id"]]},
+            )
+        self.assertEqual(status, 409)
+        assert body is not None
+        self.assertEqual(body["detail"]["code"], "IDEA_VERSION_CONFLICT")
+
+    def test_confirm_path_update_archived_returns_409(self) -> None:
+        from app.db.repo_ideas import UpdateIdeaResult
+
+        idea_id = self._create_idea()
+        _, root = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        assert root is not None
+
+        with patch(
+            "app.routes.idea_dag._repo.apply_agent_update",
+            return_value=UpdateIdeaResult(kind="archived"),
+        ):
+            status, body = self.client.request_json(
+                "POST",
+                f"/ideas/{idea_id}/paths",
+                {"node_chain": [root["id"]]},
+            )
+        self.assertEqual(status, 409)
+        assert body is not None
+        self.assertEqual(body["detail"]["code"], "IDEA_ARCHIVED")
+
+    def test_confirm_path_update_not_found_returns_404(self) -> None:
+        from app.db.repo_ideas import UpdateIdeaResult
+
+        idea_id = self._create_idea()
+        _, root = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        assert root is not None
+
+        with patch(
+            "app.routes.idea_dag._repo.apply_agent_update",
+            return_value=UpdateIdeaResult(kind="not_found"),
+        ):
+            status, body = self.client.request_json(
+                "POST",
+                f"/ideas/{idea_id}/paths",
+                {"node_chain": [root["id"]]},
+            )
+        self.assertEqual(status, 404)
+        assert body is not None
+        self.assertEqual(body["detail"]["code"], "IDEA_NOT_FOUND")
 
     def test_get_latest_path_404_when_none(self) -> None:
         idea_id = self._create_idea()

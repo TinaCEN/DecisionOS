@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.schemas.common import DirectionId, PathId, ReasoningBreakdown, ScoreBreakdown
+from app.schemas.common import ReasoningBreakdown, ScoreBreakdown
 
 
-class FeasibilityInput(BaseModel):
+class ConfirmedDAGContextInput(BaseModel):
+    confirmed_path_id: str = Field(min_length=1)
+    confirmed_node_id: str = Field(min_length=1)
+    confirmed_node_content: str = Field(min_length=1)
+    confirmed_path_summary: str | None = Field(default=None, min_length=1)
+
+
+class FeasibilityInput(ConfirmedDAGContextInput):
     idea_seed: str = Field(min_length=1)
-    direction_id: DirectionId
-    direction_text: str = Field(min_length=1)
-    path_id: PathId
 
 
 class Plan(BaseModel):

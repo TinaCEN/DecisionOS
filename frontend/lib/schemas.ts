@@ -62,11 +62,27 @@ export const feasibilityPlanSchema = z.object({
   recommended_positioning: z.string().min(1),
 })
 
+export const confirmedPathNodeSchema = z.object({
+  id: z.string().min(1),
+  content: z.string().min(1),
+  expansion_pattern: z.string().nullable().optional(),
+  edge_label: z.string().nullable().optional(),
+  depth: z.number().int().nonnegative().optional(),
+})
+
+export const confirmedPathContextSchema = z.object({
+  confirmed_path_id: z.string().min(1),
+  confirmed_node_id: z.string().min(1),
+  confirmed_node_content: z.string().min(1),
+  confirmed_path_summary: z.string().min(1).optional(),
+})
+
 export const feasibilityInputSchema = z.object({
   idea_seed: z.string().min(1),
-  direction_id: directionIdSchema,
-  direction_text: z.string().min(1),
-  path_id: pathIdSchema,
+  confirmed_path_id: z.string().min(1),
+  confirmed_node_id: z.string().min(1),
+  confirmed_node_content: z.string().min(1),
+  confirmed_path_summary: z.string().min(1).optional(),
 })
 
 export const feasibilityOutputSchema = z.object({
@@ -89,9 +105,10 @@ export const outScopeItemSchema = z.object({
 
 export const scopeInputSchema = z.object({
   idea_seed: z.string().min(1),
-  direction_id: directionIdSchema,
-  direction_text: z.string().min(1),
-  path_id: pathIdSchema,
+  confirmed_path_id: z.string().min(1),
+  confirmed_node_id: z.string().min(1),
+  confirmed_node_content: z.string().min(1),
+  confirmed_path_summary: z.string().min(1).optional(),
   selected_plan_id: z.string().min(1),
   feasibility: feasibilityOutputSchema,
 })
@@ -112,7 +129,10 @@ export const prdSectionsSchema = z.object({
 
 export const prdInputSchema = z.object({
   idea_seed: z.string().min(1),
-  direction_text: z.string().min(1),
+  confirmed_path_id: z.string().min(1),
+  confirmed_node_id: z.string().min(1),
+  confirmed_node_content: z.string().min(1),
+  confirmed_path_summary: z.string().min(1).optional(),
   selected_plan_id: z.string().min(1),
   scope: scopeOutputSchema,
 })
@@ -153,6 +173,9 @@ export const decisionContextSchema = z.object({
   scope_frozen: z.boolean().optional(),
   prd: prdOutputSchema.optional(),
   confirmed_dag_path_id: z.string().optional(),
+  confirmed_dag_node_id: z.string().optional(),
+  confirmed_dag_node_content: z.string().optional(),
+  confirmed_dag_path_summary: z.string().optional(),
 })
 
 export const ideaDetailSchema = ideaSummarySchema.extend({
@@ -231,6 +254,8 @@ export type PathOption = z.infer<typeof pathOptionSchema>
 export type FeasibilityScores = z.infer<typeof scoreBreakdownSchema>
 export type FeasibilityReasoning = z.infer<typeof reasoningBreakdownSchema>
 export type FeasibilityPlan = z.infer<typeof feasibilityPlanSchema>
+export type ConfirmedPathNode = z.infer<typeof confirmedPathNodeSchema>
+export type ConfirmedPathContext = z.infer<typeof confirmedPathContextSchema>
 export type FeasibilityInput = z.infer<typeof feasibilityInputSchema>
 export type FeasibilityOutput = z.infer<typeof feasibilityOutputSchema>
 export type InScopeItem = z.infer<typeof inScopeItemSchema>

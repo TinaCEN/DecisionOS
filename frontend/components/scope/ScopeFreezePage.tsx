@@ -1,17 +1,19 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import { GuardPanel } from '../common/GuardPanel'
 import { ScopeBoard } from './ScopeBoard'
 import { postIdeaScopedAgent } from '../../lib/api'
+import { buildConfirmedPathContext, getLatestPath } from '../../lib/dag-api'
 import { canOpenPrd, canOpenScope } from '../../lib/guards'
 import { buildIdeaStepHref, resolveIdeaIdForRouting } from '../../lib/idea-routes'
 import { useIdeasStore } from '../../lib/ideas-store'
 import {
   scopeOutputSchema,
+  type ConfirmedPathContext,
   type InScopeItem,
   type OutScopeItem,
   type ScopeInput,
@@ -34,22 +36,13 @@ export function ScopeFreezePage() {
   const [outScope, setOutScope] = useState<OutScopeItem[]>(context.scope?.out_scope ?? [])
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [confirmedPathContext, setConfirmedPathContext] = useState<ConfirmedPathContext | null>(
+    null
+  )
   const canOpen = canOpenScope(context)
   const canEnterPrd = canOpenPrd(context)
   const frozen = Boolean(context.scope_frozen)
   const routeIdeaId = resolveIdeaIdForRouting(pathname, activeIdeaId)
-
-  const selectedDirection = useMemo(() => {
-    if (!context.opportunity || !context.selected_direction_id) {
-      return null
-    }
-
-    return (
-      context.opportunity.directions.find(
-        (direction) => direction.id === context.selected_direction_id
-      ) ?? null
-    )
-  }, [context.opportunity, context.selected_direction_id])
 
   useEffect(() => {
     if (context.scope) {
@@ -59,23 +52,58 @@ export function ScopeFreezePage() {
   }, [context.scope])
 
   useEffect(() => {
+    if (!activeIdeaId) {
+      setConfirmedPathContext(null)
+      return
+    }
+
+    let cancelled = false
+    const run = async () => {
+      try {
+        const latestPath = await getLatestPath(activeIdeaId)
+        if (!latestPath) {
+          setConfirmedPathContext(null)
+          return
+        }
+
+        const next = buildConfirmedPathContext(latestPath)
+        if (!next) {
+          throw new Error('Confirmed path payload is invalid. Re-confirm the DAG path.')
+        }
+
+        if (!cancelled) {
+          setConfirmedPathContext(next)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message =
+            error instanceof Error ? error.message : 'Failed to load confirmed DAG path.'
+          setErrorMessage(message)
+          setConfirmedPathContext(null)
+        }
+      }
+    }
+
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [activeIdeaId, context.confirmed_dag_path_id])
+
+  useEffect(() => {
     if (
       !canOpen ||
       !context.idea_seed ||
-      !context.selected_direction_id ||
-      !context.path_id ||
       !context.selected_plan_id ||
       !context.feasibility ||
-      !selectedDirection
+      !confirmedPathContext
     ) {
       return
     }
 
     const payload: ScopeInput = {
       idea_seed: context.idea_seed,
-      direction_id: context.selected_direction_id,
-      direction_text: `${selectedDirection.title} - ${selectedDirection.one_liner}`,
-      path_id: context.path_id,
+      ...confirmedPathContext,
       selected_plan_id: context.selected_plan_id,
       feasibility: context.feasibility,
     }
@@ -121,13 +149,10 @@ export function ScopeFreezePage() {
     activeIdea,
     activeIdeaId,
     canOpen,
+    confirmedPathContext,
     context.feasibility,
     context.idea_seed,
-    context.path_id,
-    context.selected_direction_id,
     context.selected_plan_id,
-    pathname,
-    selectedDirection,
     setScope,
     setIdeaVersion,
   ])

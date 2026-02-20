@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from app.core import llm
 from app.core.time import utc_now_iso
 from app.db import repo_dag
-from app.db.repo_ideas import IdeaRepository
+from app.db.repo_ideas import IdeaRepository, UpdateIdeaResult
 from app.schemas.dag import (
     ConfirmPathRequest,
     CreateRootNodeRequest,
@@ -40,6 +40,28 @@ def _chain_summary(idea_id: str, node_chain: list[str]) -> str:
     nodes = {n.id: n for n in repo_dag.list_nodes(idea_id)}
     parts = [nodes[nid].content for nid in node_chain if nid in nodes]
     return " → ".join(parts)
+
+
+def _unwrap_update(result: UpdateIdeaResult) -> None:
+    if result.kind == "ok":
+        return
+
+    if result.kind == "not_found":
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "IDEA_NOT_FOUND", "message": "Idea not found"},
+        )
+
+    if result.kind == "archived":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "IDEA_ARCHIVED", "message": "Idea is archived"},
+        )
+
+    raise HTTPException(
+        status_code=409,
+        detail={"code": "IDEA_VERSION_CONFLICT", "message": "Idea version conflict"},
+    )
 
 
 @router.get("/nodes", response_model=list[IdeaNodeOut])
@@ -175,6 +197,20 @@ async def confirm_path(idea_id: str, body: ConfirmPathRequest) -> IdeaPathOut:
         )
 
     nodes = {n.id: n for n in repo_dag.list_nodes(idea_id)}
+    if not body.node_chain:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_NODE_CHAIN", "message": "node_chain cannot be empty"},
+        )
+    missing = [node_id for node_id in body.node_chain if node_id not in nodes]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_NODE_CHAIN", "message": "node_chain contains unknown nodes"},
+        )
+
+    confirmed_node_id = body.node_chain[-1]
+    confirmed_node_content = nodes[confirmed_node_id].content
 
     lines = ["# Idea Path\n"]
     for i, nid in enumerate(body.node_chain):
@@ -213,12 +249,20 @@ async def confirm_path(idea_id: str, body: ConfirmPathRequest) -> IdeaPathOut:
         path_json=json.dumps(path_json_data, ensure_ascii=False),
     )
 
-    # Stamp confirmed_dag_path_id onto the idea context so guards unlock Feasibility
-    _repo.apply_agent_update(
+    # Stamp DAG confirmation context so stage guards unlock Feasibility.
+    update = _repo.apply_agent_update(
         idea_id,
         version=idea.version,
-        mutate_context=lambda ctx: ctx.model_copy(update={"confirmed_dag_path_id": path.id}),
+        mutate_context=lambda ctx: ctx.model_copy(
+            update={
+                "confirmed_dag_path_id": path.id,
+                "confirmed_dag_node_id": confirmed_node_id,
+                "confirmed_dag_node_content": confirmed_node_content,
+                "confirmed_dag_path_summary": summary,
+            }
+        ),
     )
+    _unwrap_update(update)
 
     return IdeaPathOut(**path.__dict__)
 

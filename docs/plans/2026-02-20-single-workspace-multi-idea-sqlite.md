@@ -378,3 +378,27 @@ This avoids breaking clients when vector search is added later.
 - Agent generation writes to the correct idea context in SQLite.
 - Frontend survives refresh without losing idea progress.
 - Architecture leaves clear extension seam for vector semantic retrieval.
+
+---
+
+## 10. Pending Cleanup (DAG-Native Feasibility)
+
+Background:
+
+- Legacy `selected_direction_id` / `path_id` fields were tied to pre-DAG Idea Canvas flow.
+- Current Feasibility guard is DAG-based (`confirmed_dag_path_id`), but request payload still depends on legacy fields, which can cause empty-state regressions.
+
+TODO:
+
+- Remove legacy direction/path dependency from Feasibility/Scope/PRD request contracts.
+- Update backend schemas and prompts to use DAG-confirmed context as the canonical source.
+- Keep scoring dimensions as `tech/market/exec`; do not introduce rigid content-rule scoring in this phase.
+- Feasibility header must display user-confirmed node content (not global DAG leaf assumption).
+- Add a compatibility window if needed, then delete `selected_direction_id` / `path_id` from `DecisionContext` schema.
+- Add a one-time cleanup script (or migration task) to strip deprecated keys from existing `idea.context_json`.
+- Update frontend completion indicators and guards that still read legacy fields.
+
+Migration note:
+
+- Prioritize contract + UI migration first, then data cleanup.
+- `AGENTS.md` remains architecture guardrails; operational cleanup tasks live in plan docs.

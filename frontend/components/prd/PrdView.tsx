@@ -3,17 +3,15 @@ import type { DecisionContext, PrdOutput } from '../../lib/schemas'
 type PrdViewProps = {
   prd?: PrdOutput
   context: DecisionContext
+  loading?: boolean
+  errorMessage?: string | null
 }
 
-export function PrdView({ prd, context }: PrdViewProps) {
-  const selectedDirection = context.opportunity?.directions.find(
-    (direction) => direction.id === context.selected_direction_id
-  )
+export function PrdView({ prd, context, loading = false, errorMessage = null }: PrdViewProps) {
   const inScopeTitles = context.scope?.in_scope.map((item) => item.title) ?? []
   const contextRows = [
     { label: 'Idea Seed', value: context.idea_seed ?? 'N/A' },
-    { label: 'Direction', value: selectedDirection?.title ?? 'N/A' },
-    { label: 'Path', value: context.path_id ?? 'N/A' },
+    { label: 'Confirmed DAG Path', value: context.confirmed_dag_path_id ?? 'N/A' },
     { label: 'Selected Plan', value: context.selected_plan_id ?? 'N/A' },
     { label: 'Scope Frozen', value: context.scope_frozen ? 'Yes' : 'No' },
   ]
@@ -25,6 +23,8 @@ export function PrdView({ prd, context }: PrdViewProps) {
         <p className="mt-2 text-sm text-slate-600">
           Product requirements synthesized from decisions.
         </p>
+        {loading ? <p className="mt-2 text-xs text-slate-500">Generating PRD...</p> : null}
+        {errorMessage ? <p className="mt-2 text-xs text-red-600">{errorMessage}</p> : null}
       </header>
 
       <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -54,10 +54,12 @@ export function PrdView({ prd, context }: PrdViewProps) {
           PRD Markdown
         </h2>
         <pre className="max-h-[70vh] overflow-x-auto px-5 py-4 text-sm leading-6 break-words whitespace-pre-wrap text-slate-100">
-          {prd?.markdown ??
-            `# PRD Placeholder\n\n- problem: ${context.idea_seed ?? 'N/A'}\n- direction: ${
-              selectedDirection?.title ?? 'N/A'
-            }\n- selected plan: ${context.selected_plan_id ?? 'N/A'}`}
+          {loading
+            ? 'Generating PRD...'
+            : (prd?.markdown ??
+              `# PRD Placeholder\n\n- problem: ${context.idea_seed ?? 'N/A'}\n- confirmed_path: ${
+                context.confirmed_dag_path_id ?? 'N/A'
+              }\n- selected plan: ${context.selected_plan_id ?? 'N/A'}`)}
         </pre>
       </section>
     </section>

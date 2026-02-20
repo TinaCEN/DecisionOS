@@ -143,7 +143,10 @@ def generate_opportunity_output(idea_seed: str, *, count: int) -> OpportunityOut
 
 
 def generate_feasibility_output(payload: FeasibilityInput) -> FeasibilityOutput:
-    seed = f"feasibility:{payload.idea_seed}:{payload.direction_id}:{payload.path_id}:{payload.direction_text}"
+    seed = (
+        f"feasibility:{payload.idea_seed}:{payload.confirmed_path_id}:"
+        f"{payload.confirmed_node_id}:{payload.confirmed_node_content}:{payload.confirmed_path_summary}"
+    )
     base = _seed_int(seed)
 
     plans: list[Plan] = []
@@ -171,7 +174,7 @@ def generate_feasibility_output(payload: FeasibilityInput) -> FeasibilityOutput:
                     market_viability=_REASONS_MARKET[(base + index) % len(_REASONS_MARKET)],
                     execution_risk=_REASONS_RISK[(base + index) % len(_REASONS_RISK)],
                 ),
-                recommended_positioning=f"{positioning} (Path: {payload.path_id}).",
+                recommended_positioning=positioning,
             )
         )
 
@@ -179,7 +182,10 @@ def generate_feasibility_output(payload: FeasibilityInput) -> FeasibilityOutput:
 
 
 def generate_scope_output(payload: ScopeInput) -> ScopeOutput:
-    seed = f"scope:{payload.idea_seed}:{payload.selected_plan_id}:{payload.path_id}"
+    seed = (
+        f"scope:{payload.idea_seed}:{payload.selected_plan_id}:"
+        f"{payload.confirmed_path_id}:{payload.confirmed_node_id}"
+    )
     base = _seed_int(seed)
 
     in_scope: list[InScopeItem] = []
@@ -215,10 +221,14 @@ def generate_prd_output(payload: PRDInput) -> PRDOutput:
     sections = PRDSections(
         problem_statement=f"Builders need a reliable flow to evaluate '{payload.idea_seed}' quickly.",
         target_user="Independent developers and small hackathon teams.",
-        core_workflow="Idea input -> opportunity selection -> feasibility confirmation -> scope freeze.",
+        core_workflow=(
+            "Idea input -> DAG exploration -> confirmed path/node -> feasibility confirmation -> scope freeze."
+        ),
         mvp_scope="\n".join(f"- {item.title}" for item in payload.scope.in_scope),
         success_metrics="First completed decision workflow in < 15 minutes; clear IN/OUT scope lock.",
-        risk_analysis="Biggest risks are stream UX edge cases and weak positioning clarity.",
+        risk_analysis=(
+            "Biggest risks are stream UX edge cases and weak positioning clarity from DAG node context."
+        ),
     )
 
     markdown = "\n".join(

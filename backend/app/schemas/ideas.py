@@ -30,6 +30,9 @@ class DecisionContext(BaseModel):
     scope_frozen: bool = False
     prd: PRDOutput | None = None
     confirmed_dag_path_id: str | None = None
+    confirmed_dag_node_id: str | None = Field(default=None, min_length=1)
+    confirmed_dag_node_content: str | None = Field(default=None, min_length=1)
+    confirmed_dag_path_summary: str | None = Field(default=None, min_length=1)
 
 
 class WorkspaceDetail(BaseModel):

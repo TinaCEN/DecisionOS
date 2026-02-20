@@ -108,9 +108,9 @@ export function AppShell({ children }: AppShellProps) {
     {
       step: 'idea-canvas',
       label: 'Idea Canvas',
-      description: 'Direction + path',
+      description: 'DAG path confirm',
       locked: false,
-      done: Boolean(hydratedContext?.selected_direction_id && hydratedContext.path_id),
+      done: Boolean(hydratedContext?.confirmed_dag_path_id),
     },
     {
       step: 'feasibility',

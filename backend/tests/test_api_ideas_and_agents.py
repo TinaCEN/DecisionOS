@@ -48,18 +48,20 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         idea_id: str,
         *,
         version: int,
-        direction_id: str,
-        direction_text: str,
-        path_id: str = "pathA",
+        confirmed_path_id: str = "dag-path-1",
+        confirmed_node_id: str = "dag-node-1",
+        confirmed_node_content: str = "Validated DAG node content",
+        confirmed_path_summary: str | None = "DAG path summary",
     ) -> dict[str, object]:
         status, payload = self.client.request_json(
             "POST",
             f"/ideas/{idea_id}/agents/feasibility",
             {
                 "idea_seed": "seed",
-                "direction_id": direction_id,
-                "direction_text": direction_text,
-                "path_id": path_id,
+                "confirmed_path_id": confirmed_path_id,
+                "confirmed_node_id": confirmed_node_id,
+                "confirmed_node_content": confirmed_node_content,
+                "confirmed_path_summary": confirmed_path_summary,
                 "version": version,
             },
         )
@@ -72,20 +74,22 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         idea_id: str,
         *,
         version: int,
-        direction_id: str,
-        direction_text: str,
+        confirmed_path_id: str,
+        confirmed_node_id: str,
+        confirmed_node_content: str,
+        confirmed_path_summary: str | None,
         selected_plan_id: str,
         feasibility: dict[str, object],
-        path_id: str = "pathA",
     ) -> tuple[int, dict[str, object] | None]:
         return self.client.request_json(
             "POST",
             f"/ideas/{idea_id}/agents/scope",
             {
                 "idea_seed": "seed",
-                "direction_id": direction_id,
-                "direction_text": direction_text,
-                "path_id": path_id,
+                "confirmed_path_id": confirmed_path_id,
+                "confirmed_node_id": confirmed_node_id,
+                "confirmed_node_content": confirmed_node_content,
+                "confirmed_path_summary": confirmed_path_summary,
                 "selected_plan_id": selected_plan_id,
                 "feasibility": feasibility,
                 "version": version,
@@ -97,7 +101,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         idea_id: str,
         *,
         version: int,
-        direction_text: str,
+        confirmed_path_id: str,
+        confirmed_node_id: str,
+        confirmed_node_content: str,
+        confirmed_path_summary: str | None,
         selected_plan_id: str,
         scope: dict[str, object],
     ) -> tuple[int, dict[str, object] | None]:
@@ -106,7 +113,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
             f"/ideas/{idea_id}/agents/prd",
             {
                 "idea_seed": "seed",
-                "direction_text": direction_text,
+                "confirmed_path_id": confirmed_path_id,
+                "confirmed_node_id": confirmed_node_id,
+                "confirmed_node_content": confirmed_node_content,
+                "confirmed_path_summary": confirmed_path_summary,
                 "selected_plan_id": selected_plan_id,
                 "scope": scope,
                 "version": version,
@@ -306,7 +316,6 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
     def test_feasibility_stream_emits_error_for_stale_version(self) -> None:
         idea_id, initial_version = self._create_idea("Feasibility Stream Idea")
         opportunity = self._generate_opportunity(idea_id, initial_version)
-        direction = opportunity["data"]["directions"][0]
         current_version = opportunity["idea_version"]
 
         stale_stream = self.client.request_raw(
@@ -314,9 +323,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
             f"/ideas/{idea_id}/agents/feasibility/stream",
             {
                 "idea_seed": "seed",
-                "direction_id": direction["id"],
-                "direction_text": f"{direction['title']} - {direction['one_liner']}",
-                "path_id": "pathA",
+                "confirmed_path_id": "dag-path-1",
+                "confirmed_node_id": "dag-node-1",
+                "confirmed_node_content": "Validated DAG node content",
+                "confirmed_path_summary": "DAG path summary",
                 "version": initial_version,
             },
         )
@@ -337,9 +347,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
             f"/ideas/{idea_id}/agents/feasibility/stream",
             {
                 "idea_seed": "seed",
-                "direction_id": direction["id"],
-                "direction_text": f"{direction['title']} - {direction['one_liner']}",
-                "path_id": "pathA",
+                "confirmed_path_id": "dag-path-1",
+                "confirmed_node_id": "dag-node-1",
+                "confirmed_node_content": "Validated DAG node content",
+                "confirmed_path_summary": "DAG path summary",
                 "version": current_version,
             },
         )
@@ -357,21 +368,23 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
     def test_scope_and_prd_version_guards(self) -> None:
         idea_id, initial_version = self._create_idea("Scope PRD Guard Idea")
         opportunity = self._generate_opportunity(idea_id, initial_version)
-        direction = opportunity["data"]["directions"][0]
-        direction_text = f"{direction['title']} - {direction['one_liner']}"
         feasibility = self._generate_feasibility(
             idea_id,
             version=opportunity["idea_version"],
-            direction_id=direction["id"],
-            direction_text=direction_text,
+            confirmed_path_id="dag-path-guard",
+            confirmed_node_id="dag-node-guard",
+            confirmed_node_content="Guard DAG node content",
+            confirmed_path_summary="Guard DAG path summary",
         )
         selected_plan_id = feasibility["data"]["plans"][0]["id"]
 
         stale_scope_status, stale_scope = self._generate_scope(
             idea_id,
             version=opportunity["idea_version"],
-            direction_id=direction["id"],
-            direction_text=direction_text,
+            confirmed_path_id="dag-path-guard",
+            confirmed_node_id="dag-node-guard",
+            confirmed_node_content="Guard DAG node content",
+            confirmed_path_summary="Guard DAG path summary",
             selected_plan_id=selected_plan_id,
             feasibility=feasibility["data"],
         )
@@ -382,8 +395,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         scope_status, scope = self._generate_scope(
             idea_id,
             version=feasibility["idea_version"],
-            direction_id=direction["id"],
-            direction_text=direction_text,
+            confirmed_path_id="dag-path-guard",
+            confirmed_node_id="dag-node-guard",
+            confirmed_node_content="Guard DAG node content",
+            confirmed_path_summary="Guard DAG path summary",
             selected_plan_id=selected_plan_id,
             feasibility=feasibility["data"],
         )
@@ -393,7 +408,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         stale_prd_status, stale_prd = self._generate_prd(
             idea_id,
             version=feasibility["idea_version"],
-            direction_text=direction_text,
+            confirmed_path_id="dag-path-guard",
+            confirmed_node_id="dag-node-guard",
+            confirmed_node_content="Guard DAG node content",
+            confirmed_path_summary="Guard DAG path summary",
             selected_plan_id=selected_plan_id,
             scope=scope["data"],
         )
@@ -404,7 +422,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         prd_status, prd = self._generate_prd(
             idea_id,
             version=scope["idea_version"],
-            direction_text=direction_text,
+            confirmed_path_id="dag-path-guard",
+            confirmed_node_id="dag-node-guard",
+            confirmed_node_content="Guard DAG node content",
+            confirmed_path_summary="Guard DAG path summary",
             selected_plan_id=selected_plan_id,
             scope=scope["data"],
         )
@@ -418,6 +439,11 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         self.assertEqual(final_detail["version"], prd["idea_version"])
         self.assertIsNotNone(final_detail["context"]["scope"])
         self.assertIsNotNone(final_detail["context"]["prd"])
+        self.assertEqual(final_detail["context"]["confirmed_dag_path_id"], "dag-path-guard")
+        self.assertEqual(final_detail["context"]["confirmed_dag_node_id"], "dag-node-guard")
+        self.assertEqual(final_detail["context"]["confirmed_dag_node_content"], "Guard DAG node content")
+        self.assertIsNone(final_detail["context"]["selected_direction_id"])
+        self.assertIsNone(final_detail["context"]["path_id"])
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.schemas.feasibility import ConfirmedDAGContextInput
 from app.schemas.scope import ScopeOutput
 
 
@@ -14,9 +15,8 @@ class PRDSections(BaseModel):
     risk_analysis: str
 
 
-class PRDInput(BaseModel):
+class PRDInput(ConfirmedDAGContextInput):
     idea_seed: str = Field(min_length=1)
-    direction_text: str = Field(min_length=1)
     selected_plan_id: str = Field(min_length=1)
     scope: ScopeOutput
 

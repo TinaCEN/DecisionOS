@@ -18,12 +18,12 @@ def build_opportunity_prompt(*, idea_seed: str, count: int) -> str:
     )
 
 FEASIBILITY_PROMPT = (
-    "Given an idea seed, selected direction, and path, produce exactly three feasibility plans "
+    "Given an idea seed and confirmed DAG path context, produce exactly three feasibility plans "
     "with scoring and reasoning."
 )
 
 SCOPE_PROMPT = (
-    "Given a selected plan and feasibility output, classify features into in_scope and out_scope."
+    "Given confirmed DAG context, selected plan and feasibility output, classify features into in_scope and out_scope."
 )
 
 PRD_PROMPT = "Generate a concise MVP PRD markdown from approved scope."
@@ -32,16 +32,18 @@ PRD_PROMPT = "Generate a concise MVP PRD markdown from approved scope."
 def build_feasibility_prompt(
     *,
     idea_seed: str,
-    direction_id: str,
-    direction_text: str,
-    path_id: str,
+    confirmed_path_id: str,
+    confirmed_node_id: str,
+    confirmed_node_content: str,
+    confirmed_path_summary: str | None,
 ) -> str:
     return (
         f"{FEASIBILITY_PROMPT}\n"
         f"idea_seed={idea_seed!r}\n"
-        f"direction_id={direction_id!r}\n"
-        f"direction_text={direction_text!r}\n"
-        f"path_id={path_id!r}\n"
+        f"confirmed_path_id={confirmed_path_id!r}\n"
+        f"confirmed_node_id={confirmed_node_id!r}\n"
+        f"confirmed_node_content={confirmed_node_content!r}\n"
+        f"confirmed_path_summary={confirmed_path_summary!r}\n"
         "Return JSON with key 'plans'."
     )
 
@@ -49,18 +51,20 @@ def build_feasibility_prompt(
 def build_scope_prompt(
     *,
     idea_seed: str,
-    direction_id: str,
-    direction_text: str,
-    path_id: str,
+    confirmed_path_id: str,
+    confirmed_node_id: str,
+    confirmed_node_content: str,
+    confirmed_path_summary: str | None,
     selected_plan_id: str,
     feasibility_payload: dict[str, object],
 ) -> str:
     return (
         f"{SCOPE_PROMPT}\n"
         f"idea_seed={idea_seed!r}\n"
-        f"direction_id={direction_id!r}\n"
-        f"direction_text={direction_text!r}\n"
-        f"path_id={path_id!r}\n"
+        f"confirmed_path_id={confirmed_path_id!r}\n"
+        f"confirmed_node_id={confirmed_node_id!r}\n"
+        f"confirmed_node_content={confirmed_node_content!r}\n"
+        f"confirmed_path_summary={confirmed_path_summary!r}\n"
         f"selected_plan_id={selected_plan_id!r}\n"
         f"feasibility={json.dumps(feasibility_payload, ensure_ascii=False)}\n"
         "Return JSON with keys 'in_scope' and 'out_scope'."
@@ -70,14 +74,20 @@ def build_scope_prompt(
 def build_prd_prompt(
     *,
     idea_seed: str,
-    direction_text: str,
+    confirmed_path_id: str,
+    confirmed_node_id: str,
+    confirmed_node_content: str,
+    confirmed_path_summary: str | None,
     selected_plan_id: str,
     scope_payload: dict[str, object],
 ) -> str:
     return (
         f"{PRD_PROMPT}\n"
         f"idea_seed={idea_seed!r}\n"
-        f"direction_text={direction_text!r}\n"
+        f"confirmed_path_id={confirmed_path_id!r}\n"
+        f"confirmed_node_id={confirmed_node_id!r}\n"
+        f"confirmed_node_content={confirmed_node_content!r}\n"
+        f"confirmed_path_summary={confirmed_path_summary!r}\n"
         f"selected_plan_id={selected_plan_id!r}\n"
         f"scope={json.dumps(scope_payload, ensure_ascii=False)}\n"
         "Return JSON with keys 'markdown' and 'sections'."
