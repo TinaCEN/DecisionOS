@@ -116,21 +116,27 @@ export function IdeaDAGCanvas({ ideaId, ideaSeed }: Props) {
   // Init: reset store on ideaId change, then load or create root node
   useEffect(() => {
     reset()
+    let cancelled = false
     ;(async () => {
       const [existing, latestPath] = await Promise.all([
         listNodes(ideaId),
         getLatestPath(ideaId).catch(() => null),
       ])
+      if (cancelled) return
       if (existing.length > 0) {
         setNodes(existing)
       } else {
         const root = await createRootNode(ideaId, ideaSeed)
+        if (cancelled) return
         setNodes([root])
       }
       if (latestPath) {
         setConfirmedPath(latestPath)
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [ideaId, ideaSeed, setNodes, setConfirmedPath, reset])
 
   const handleNodeClick = useCallback(

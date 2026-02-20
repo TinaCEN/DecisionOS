@@ -52,6 +52,11 @@ async def list_nodes(idea_id: str) -> list[IdeaNodeOut]:
 @router.post("/nodes", response_model=IdeaNodeOut, status_code=201)
 async def create_root_node(idea_id: str, body: CreateRootNodeRequest) -> IdeaNodeOut:
     _require_idea(idea_id)
+    existing = repo_dag.list_nodes(idea_id)
+    if existing:
+        # Root node already exists — return it instead of creating a duplicate
+        root = next((n for n in existing if n.parent_id is None), existing[0])
+        return IdeaNodeOut(**root.__dict__)
     node = repo_dag.create_node(idea_id=idea_id, content=body.content)
     return IdeaNodeOut(**node.__dict__)
 
