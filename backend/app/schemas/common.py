@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-DirectionId = Literal["A", "B", "C"]
+DirectionId = Literal["A", "B", "C", "D", "E", "F"]
 PathId = Literal["pathA", "pathB", "pathC"]
 PriorityLevel = Literal["P0", "P1", "P2"]
 

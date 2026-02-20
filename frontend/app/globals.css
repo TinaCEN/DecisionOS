@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: light;
+  --font-command-center:
+    'IBM Plex Sans', 'Avenir Next', 'Segoe UI', 'Helvetica Neue', 'Noto Sans', sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-command-center), sans-serif;
+  background:
+    radial-gradient(1200px circle at 0% 0%, rgb(191 219 254 / 0.45), transparent 52%),
+    radial-gradient(900px circle at 100% 100%, rgb(226 232 240 / 0.45), transparent 58%), #eef2f7;
+  color: #0f172a;
+}
+
+::selection {
+  background-color: rgb(29 78 216 / 0.25);
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

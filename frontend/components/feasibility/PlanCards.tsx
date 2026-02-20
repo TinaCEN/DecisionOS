@@ -1,7 +1,10 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 
+import { buildIdeaFeasibilityDetailHref, resolveIdeaIdForRouting } from '../../lib/idea-routes'
+import { useIdeasStore } from '../../lib/ideas-store'
 import type { FeasibilityPlan } from '../../lib/schemas'
 
 type PlanCardsProps = {
@@ -11,7 +14,12 @@ type PlanCardsProps = {
 }
 
 export function PlanCards({ plans, selectedPlanId, onSelect }: PlanCardsProps) {
-  const router = useRouter()
+  const pathname = usePathname()
+  const activeIdeaId = useIdeasStore((state) => state.activeIdeaId)
+  const buildDetailHref = (planId: string): string => {
+    const routeIdeaId = resolveIdeaIdForRouting(pathname, activeIdeaId)
+    return routeIdeaId ? buildIdeaFeasibilityDetailHref(routeIdeaId, planId) : '/ideas'
+  }
 
   return (
     <section className="grid gap-4 md:grid-cols-3">
@@ -21,44 +29,58 @@ export function PlanCards({ plans, selectedPlanId, onSelect }: PlanCardsProps) {
         return (
           <article
             key={plan.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => router.push(`/feasibility/${plan.id}`)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                router.push(`/feasibility/${plan.id}`)
-              }
-            }}
             className={[
-              'group cursor-pointer rounded-xl border p-4',
-              selected ? 'border-black bg-black text-white' : 'border-black/20 bg-white',
+              'rounded-2xl border p-4 shadow-sm transition-all duration-200 motion-reduce:transition-none',
+              selected
+                ? 'border-slate-900 bg-slate-900 text-slate-50 shadow-md shadow-slate-900/20'
+                : 'border-slate-200 bg-white text-slate-900 hover:-translate-y-0.5 hover:border-cyan-400/60 hover:shadow-md',
             ].join(' ')}
           >
-            <h2 className="text-base font-semibold">{plan.name}</h2>
-            <p className="mt-2 text-sm opacity-80">{plan.summary}</p>
-            <p className="mt-4 text-sm">Overall: {plan.score_overall.toFixed(1)}</p>
-            <div className="mt-3 hidden rounded-lg border border-current/20 p-2 text-xs group-hover:block">
-              <div>Tech: {plan.scores.technical_feasibility.toFixed(1)}</div>
-              <div>Market: {plan.scores.market_viability.toFixed(1)}</div>
-              <div>Risk Control: {plan.scores.execution_risk.toFixed(1)}</div>
-            </div>
-            <div className="mt-4 flex gap-2">
+            <Link
+              href={buildDetailHref(plan.id)}
+              className="group block w-full text-left focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-base font-semibold tracking-tight">{plan.name}</h2>
+                <span
+                  className={[
+                    'rounded-md border px-2 py-1 text-[11px] font-medium',
+                    selected
+                      ? 'border-slate-200/20 bg-white/10 text-slate-100'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 group-hover:border-cyan-200 group-hover:bg-cyan-50 group-hover:text-cyan-700',
+                  ].join(' ')}
+                >
+                  Overall {plan.score_overall.toFixed(1)}
+                </span>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-current/80">{plan.summary}</p>
+              <div
+                className={[
+                  'mt-4 grid grid-cols-3 gap-2 rounded-lg border p-3 text-xs',
+                  selected ? 'border-slate-200/20 bg-white/5' : 'border-slate-200 bg-slate-50/80',
+                ].join(' ')}
+              >
+                <div>Tech: {plan.scores.technical_feasibility.toFixed(1)}</div>
+                <div>Market: {plan.scores.market_viability.toFixed(1)}</div>
+                <div>Risk: {plan.scores.execution_risk.toFixed(1)}</div>
+              </div>
+            </Link>
+            <div className="mt-4 flex flex-wrap gap-2">
               {onSelect ? (
                 <button
                   type="button"
-                  className="rounded-md border border-current px-2 py-1 text-xs"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onSelect(plan.id)
-                  }}
+                  className="rounded-md border border-current/30 px-2.5 py-1.5 text-xs font-medium transition-colors duration-200 hover:bg-current/10 focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+                  onClick={() => onSelect(plan.id)}
                 >
                   Select
                 </button>
               ) : null}
-              <span className="rounded-md border border-current px-2 py-1 text-xs">
+              <Link
+                href={buildDetailHref(plan.id)}
+                className="rounded-md border border-current/30 px-2.5 py-1.5 text-xs font-medium transition-colors duration-200 hover:bg-current/10 focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
                 View Detail
-              </span>
+              </Link>
             </div>
           </article>
         )

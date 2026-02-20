@@ -13,6 +13,8 @@ class Settings:
     app_name: str
     llm_mode: LLMMode
     cors_origins: tuple[str, ...]
+    db_path: str
+    secret_key: str
 
 
 @lru_cache(maxsize=1)
@@ -24,4 +26,9 @@ def get_settings() -> Settings:
         app_name="DecisionOS API",
         llm_mode=llm_mode,
         cors_origins=("http://localhost:3000", "http://127.0.0.1:3000"),
+        db_path=os.getenv("DECISIONOS_DB_PATH", "./decisionos.db").strip() or "./decisionos.db",
+        secret_key=(
+            os.getenv("DECISIONOS_SECRET_KEY", "").strip()
+            or "decisionos-dev-secret-change-me"
+        ),
     )

@@ -1,16 +1,22 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Bubble } from './Bubble'
 import { PathCards } from './PathCards'
-import { jsonPost } from '../../lib/api'
-import { streamPost } from '../../lib/sse'
+import { postIdeaScopedAgent } from '../../lib/api'
+import { buildIdeaStepHref, resolveIdeaIdForRouting } from '../../lib/idea-routes'
+import { useIdeasStore } from '../../lib/ideas-store'
+import { isSseEventError, streamPost } from '../../lib/sse'
 import {
+  OPPORTUNITY_DEFAULT_COUNT,
+  OPPORTUNITY_MAX_COUNT,
+  OPPORTUNITY_MIN_COUNT,
   PATHS,
+  agentEnvelopeSchema,
   opportunityOutputSchema,
   type Direction,
   type OpportunityOutput,
@@ -22,19 +28,32 @@ const isAbortError = (error: unknown): boolean => {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-const MAX_VISIBLE_BUBBLES = 3
 const BUBBLE_RADIUS = 220
 const MIN_BUBBLE_RADIUS = 140
+const DIRECTION_COUNT_OPTIONS = [1, 2, 3, 4, 5, 6] as const
+
+const clampDirectionCount = (value: number): number => {
+  return Math.min(OPPORTUNITY_MAX_COUNT, Math.max(OPPORTUNITY_MIN_COUNT, value))
+}
 
 export function IdeaCanvas() {
   const router = useRouter()
+  const pathname = usePathname()
   const context = useDecisionStore((state) => state.context)
   const setIdea = useDecisionStore((state) => state.idea)
   const setOpportunity = useDecisionStore((state) => state.opportunity)
   const setDirection = useDecisionStore((state) => state.direction)
   const setPath = useDecisionStore((state) => state.path)
+  const activeIdeaId = useIdeasStore((state) => state.activeIdeaId)
+  const activeIdea = useIdeasStore(
+    (state) => state.ideas.find((idea) => idea.id === state.activeIdeaId) ?? null
+  )
+  const setIdeaVersion = useIdeasStore((state) => state.setIdeaVersion)
   const [ideaSeedInput, setIdeaSeedInput] = useState(context.idea_seed ?? '')
   const [directions, setDirections] = useState<Direction[]>(context.opportunity?.directions ?? [])
+  const [directionCount, setDirectionCount] = useState(() =>
+    clampDirectionCount(context.opportunity?.directions.length ?? OPPORTUNITY_DEFAULT_COUNT)
+  )
   const [progressPct, setProgressPct] = useState<number>(0)
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -53,6 +72,7 @@ export function IdeaCanvas() {
   useEffect(() => {
     if (context.opportunity?.directions) {
       setDirections(context.opportunity.directions)
+      setDirectionCount(clampDirectionCount(context.opportunity.directions.length))
     }
   }, [context.opportunity])
 
@@ -85,14 +105,22 @@ export function IdeaCanvas() {
     setDirections([])
     setIdea(ideaSeed)
 
+    if (!activeIdeaId || !activeIdea) {
+      const message = 'Missing active idea context'
+      setLoading(false)
+      setErrorMessage(message)
+      toast.error(message)
+      return
+    }
+
     let streamedDonePayload: unknown = null
     try {
       let shouldFallback = false
 
       try {
         await streamPost(
-          '/agents/opportunity/stream',
-          { idea_seed: ideaSeed },
+          `/ideas/${activeIdeaId}/agents/opportunity/stream`,
+          { idea_seed: ideaSeed, count: directionCount, version: activeIdea.version },
           {
             onProgress: (data) => {
               if (
@@ -136,12 +164,18 @@ export function IdeaCanvas() {
           controller.signal
         )
 
-        const streamedParsed = opportunityOutputSchema.safeParse(streamedDonePayload)
-        if (!streamedParsed.success) {
+        const envelope = agentEnvelopeSchema.safeParse(streamedDonePayload)
+        if (!envelope.success) {
           throw new Error('SSE ended without done payload.')
         }
 
-        const streamedOutput: OpportunityOutput = streamedParsed.data
+        const parsedData = opportunityOutputSchema.safeParse(envelope.data.data)
+        if (!parsedData.success) {
+          throw new Error('Opportunity payload shape mismatch.')
+        }
+        const streamedOutput: OpportunityOutput = parsedData.data
+        setIdeaVersion(activeIdeaId, envelope.data.idea_version)
+
         if (mountedRef.current) {
           setDirections(streamedOutput.directions)
         }
@@ -151,17 +185,25 @@ export function IdeaCanvas() {
           return
         }
 
+        if (isSseEventError(streamError)) {
+          throw streamError
+        }
+
         shouldFallback = true
       }
 
       if (shouldFallback) {
         toast.message('SSE unavailable, fallback to JSON')
-        const jsonOutput = await jsonPost<{ idea_seed: string }, OpportunityOutput>(
-          '/agents/opportunity',
-          { idea_seed: ideaSeed },
-          { signal: controller.signal }
-        )
-        const parsed = opportunityOutputSchema.safeParse(jsonOutput)
+        const envelope = await postIdeaScopedAgent<
+          { idea_seed: string; count: number; version: number },
+          OpportunityOutput
+        >(activeIdeaId, 'opportunity', {
+          idea_seed: ideaSeed,
+          count: directionCount,
+          version: activeIdea.version,
+        })
+        setIdeaVersion(activeIdeaId, envelope.idea_version)
+        const parsed = opportunityOutputSchema.safeParse(envelope.data)
 
         if (!parsed.success) {
           throw new Error('Opportunity payload shape mismatch.')
@@ -174,7 +216,7 @@ export function IdeaCanvas() {
       }
     } catch (error) {
       if (!isAbortError(error) && mountedRef.current) {
-        const message = error instanceof Error ? error.message : '请求失败，请稍后重试。'
+        const message = error instanceof Error ? error.message : 'Request failed. Please try again.'
         setErrorMessage(message)
         toast.error(message)
       }
@@ -196,18 +238,24 @@ export function IdeaCanvas() {
   const handleSelectPath = (pathId: PathId) => {
     setPath(pathId)
     toast.success('Path selected, moving to feasibility')
-    router.push('/feasibility')
+    const routeIdeaId = resolveIdeaIdForRouting(pathname, activeIdeaId)
+    router.push(routeIdeaId ? buildIdeaStepHref(routeIdeaId, 'feasibility') : '/ideas')
   }
 
-  const visibleDirections = useMemo(() => {
-    return directions.slice(0, MAX_VISIBLE_BUBBLES)
-  }, [directions])
+  const visibleDirections = useMemo(() => directions, [directions])
 
   const selectedDirectionId = context.selected_direction_id
+  const hasDirections = visibleDirections.length > 0
+  const bubbleCenterClass = hasDirections ? 'top-[60%]' : 'top-1/2'
 
   const bubbleLayout = useMemo(() => {
+    const total = visibleDirections.length
+    if (!total) {
+      return []
+    }
+
     return visibleDirections.map((direction, index) => {
-      const angleDeg = -90 + (index * 360) / MAX_VISIBLE_BUBBLES
+      const angleDeg = -90 + (index * 360) / total
       const angle = (angleDeg * Math.PI) / 180
 
       return {
@@ -223,12 +271,14 @@ export function IdeaCanvas() {
       <header>
         <h1 className="text-2xl font-bold">Idea Canvas</h1>
         <p className="mt-2 text-sm text-black/70">
-          输入 idea seed，先拿到方向，再选路径进入 feasibility。
+          Enter an idea seed, generate directions, then choose a path for Feasibility.
         </p>
       </header>
 
       <div className="relative isolate h-[620px] overflow-hidden rounded-[32px] border border-black/10 bg-[radial-gradient(circle_at_20%_20%,rgba(0,0,0,0.06),transparent_35%),radial-gradient(circle_at_80%_80%,rgba(0,0,0,0.05),transparent_40%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)]">
-        <div className="pointer-events-none absolute top-1/2 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/5" />
+        <div
+          className={`pointer-events-none absolute ${bubbleCenterClass} left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/5`}
+        />
 
         <motion.form
           onSubmit={handleSubmit}
@@ -237,29 +287,56 @@ export function IdeaCanvas() {
             scale: selectedDirectionId ? 0.95 : 1,
           }}
           transition={{ duration: 0.3, ease: 'easeOut' }}
-          className="absolute top-1/2 left-1/2 z-10 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-black/15 bg-white/95 p-5 shadow-lg backdrop-blur"
+          className={`pointer-events-none absolute left-1/2 z-30 w-[min(92vw,460px)] rounded-3xl border border-black/15 bg-white/95 p-5 shadow-lg backdrop-blur ${
+            hasDirections
+              ? 'top-4 -translate-x-1/2 md:top-6'
+              : 'top-1/2 -translate-x-1/2 -translate-y-1/2'
+          }`}
         >
-          <label htmlFor="idea-seed" className="text-sm font-medium">
-            Idea Seed
-          </label>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <input
-              id="idea-seed"
-              value={ideaSeedInput}
-              onChange={(event) => setIdeaSeedInput(event.currentTarget.value)}
-              placeholder="例如：给独立开发者做一个 7 天交付决策助手"
-              className="w-full rounded-md border border-black/20 px-3 py-2 text-sm outline-none focus:border-black"
-            />
-            <button
-              type="submit"
-              disabled={loading || !ideaSeedInput.trim()}
-              className="rounded-md border border-black px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? 'Generating...' : 'Generate Directions'}
-            </button>
+          <div className="pointer-events-auto">
+            <label htmlFor="idea-seed" className="text-sm font-medium">
+              Idea Seed
+            </label>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input
+                id="idea-seed"
+                value={ideaSeedInput}
+                onChange={(event) => setIdeaSeedInput(event.currentTarget.value)}
+                placeholder="e.g. A 7-day delivery decision assistant for indie developers"
+                className="w-full rounded-md border border-black/20 px-3 py-2 text-sm outline-none focus:border-black"
+              />
+              <button
+                type="submit"
+                disabled={loading || !ideaSeedInput.trim()}
+                className="rounded-md border border-black px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? 'Generating...' : 'Generate Directions'}
+              </button>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <label htmlFor="direction-count" className="text-xs text-black/70">
+                Direction count
+              </label>
+              <select
+                id="direction-count"
+                value={directionCount}
+                onChange={(event) =>
+                  setDirectionCount(clampDirectionCount(Number(event.currentTarget.value)))
+                }
+                className="rounded-md border border-black/20 px-2 py-1 text-xs outline-none focus:border-black"
+              >
+                {DIRECTION_COUNT_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {loading ? (
+              <p className="mt-2 text-xs text-black/60">Streaming {progressPct}%</p>
+            ) : null}
+            {errorMessage ? <p className="mt-2 text-xs text-red-600">{errorMessage}</p> : null}
           </div>
-          {loading ? <p className="mt-2 text-xs text-black/60">Streaming {progressPct}%</p> : null}
-          {errorMessage ? <p className="mt-2 text-xs text-red-600">{errorMessage}</p> : null}
         </motion.form>
 
         {bubbleLayout.map(({ direction, x, y }) => {
@@ -269,7 +346,7 @@ export function IdeaCanvas() {
           return (
             <motion.div
               key={direction.id}
-              className="absolute top-1/2 left-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
+              className={`absolute ${bubbleCenterClass} left-1/2 z-20 -translate-x-1/2 -translate-y-1/2`}
               initial={{ opacity: 0, scale: 0.7, x: 0, y: 0 }}
               animate={
                 hasSelected
@@ -304,7 +381,7 @@ export function IdeaCanvas() {
               exit={{ opacity: 0, y: 8 }}
               className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-dashed border-black/20 bg-white/75 px-4 py-2 text-xs text-black/60"
             >
-              提交 idea seed 后，这里会出现 3 个方向气泡。
+              After submitting an idea seed, {directionCount} direction bubbles will appear here.
             </motion.div>
           ) : null}
         </AnimatePresence>
@@ -333,7 +410,7 @@ export function IdeaCanvas() {
             exit={{ opacity: 0, y: 10 }}
             className="rounded-lg border border-dashed border-black/30 p-4 text-sm text-black/70"
           >
-            先选择一个方向，再选择路径。
+            Select a direction first, then choose a path.
           </motion.div>
         )}
       </AnimatePresence>

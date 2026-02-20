@@ -151,7 +151,7 @@ Expected: FAIL on missing routes/schemas.
 
 **Step 3: Implement Pydantic contracts + deterministic mocks + routes + CORS**
 
-- Enforce exact field names from `AGENT.md`.
+- Enforce exact field names from `AGENTS.md`.
 - Add CORS allow origin `http://localhost:3000`.
 - Return deterministic 3 directions / 3 plans.
 

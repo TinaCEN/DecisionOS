@@ -10,7 +10,7 @@ from app.schemas.common import (
     ScoreBreakdown,
 )
 from app.schemas.feasibility import FeasibilityInput, FeasibilityOutput, Plan
-from app.schemas.idea import OpportunityOutput
+from app.schemas.idea import OPPORTUNITY_MAX_COUNT, OPPORTUNITY_MIN_COUNT, OpportunityOutput
 from app.schemas.prd import PRDInput, PRDOutput, PRDSections
 from app.schemas.scope import InScopeItem, OutScopeItem, ScopeInput, ScopeOutput
 
@@ -82,7 +82,7 @@ _PLAN_TEMPLATES: list[tuple[str, str, str]] = [
 
 _IN_SCOPE_BANK: list[tuple[str, str]] = [
     ("Idea intake with deterministic mock generation", "Capture idea seed and generate repeatable outputs."),
-    ("Three-direction opportunity canvas", "Always present exactly three direction options."),
+    ("Configurable opportunity canvas", "Generate between one and six direction options on demand."),
     ("Feasibility plan cards with score breakdown", "Compare top plans with clear dimension scores."),
     ("Scope freeze IN/OUT board", "Lock MVP boundaries after plan confirmation."),
     ("POST-based SSE streaming", "Incrementally render partial outputs with progress events."),
@@ -116,15 +116,18 @@ _REASONS_RISK = [
     "Most unknowns are UX polish, not core technical feasibility.",
 ]
 
-_DIRECTION_IDS: tuple[DirectionId, ...] = ("A", "B", "C")
+_DIRECTION_IDS: tuple[DirectionId, ...] = ("A", "B", "C", "D", "E", "F")
 _PRIORITIES: tuple[PriorityLevel, ...] = ("P0", "P1", "P2")
 
 
-def generate_opportunity_output(idea_seed: str) -> OpportunityOutput:
+def generate_opportunity_output(idea_seed: str, *, count: int) -> OpportunityOutput:
+    if count < OPPORTUNITY_MIN_COUNT or count > OPPORTUNITY_MAX_COUNT:
+        raise ValueError(f"count must be between {OPPORTUNITY_MIN_COUNT} and {OPPORTUNITY_MAX_COUNT}")
+
     base = _seed_int(f"opportunity:{idea_seed}")
     directions: list[Direction] = []
 
-    for index, direction_id in enumerate(_DIRECTION_IDS):
+    for index, direction_id in enumerate(_DIRECTION_IDS[:count]):
         template = _DIRECTION_TEMPLATES[(base + index) % len(_DIRECTION_TEMPLATES)]
         title, one_liner, pain_tags = template
         directions.append(

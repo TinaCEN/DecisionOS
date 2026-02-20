@@ -1,6 +1,6 @@
 # DecisionOS MVP
 
-This repository now contains a DecisionOS hackathon MVP scaffold defined by `AGENT.md`.
+This repository now contains a DecisionOS hackathon MVP scaffold defined by `AGENTS.md`.
 
 ## Structure
 
@@ -12,12 +12,13 @@ backend         # FastAPI backend (JSON + SSE)
 ## Frontend
 
 - Entry: `frontend/app/page.tsx`
-- Core flow pages:
-  - `/idea-canvas`
-  - `/feasibility`
-  - `/feasibility/[id]`
-  - `/scope-freeze`
-  - `/prd`
+- Core flow pages (idea-scoped):
+  - `/ideas`
+  - `/ideas/[ideaId]/idea-canvas`
+  - `/ideas/[ideaId]/feasibility`
+  - `/ideas/[ideaId]/feasibility/[id]`
+  - `/ideas/[ideaId]/scope-freeze`
+  - `/ideas/[ideaId]/prd`
 
 Run commands:
 
@@ -30,14 +31,30 @@ pnpm build:web
 
 - Entry: `backend/app/main.py`
 - Health: `GET /health`
+- Workspace and ideas:
+  - `GET /workspaces/default`
+  - `GET /ideas`
+  - `POST /ideas`
+  - `GET /ideas/{idea_id}`
+  - `PATCH /ideas/{idea_id}`
+  - `PATCH /ideas/{idea_id}/context`
 - JSON endpoints:
-  - `POST /agents/opportunity`
-  - `POST /agents/feasibility`
-  - `POST /agents/scope`
-  - `POST /agents/prd`
+  - `POST /ideas/{idea_id}/agents/opportunity`
+  - `POST /ideas/{idea_id}/agents/feasibility`
+  - `POST /ideas/{idea_id}/agents/scope`
+  - `POST /ideas/{idea_id}/agents/prd`
 - SSE endpoints:
-  - `POST /agents/opportunity/stream`
-  - `POST /agents/feasibility/stream`
+  - `POST /ideas/{idea_id}/agents/opportunity/stream`
+  - `POST /ideas/{idea_id}/agents/feasibility/stream`
+- AI aggregation settings:
+  - `GET /settings/ai`
+  - `PATCH /settings/ai`
+  - `POST /settings/ai/test`
+  - Frontend page: `/settings`
+
+Legacy compatibility note:
+
+- `POST /agents/*` now returns `410 Gone` and should not be used.
 
 Setup and run:
 
@@ -46,6 +63,13 @@ cd backend
 uv venv .venv
 UV_CACHE_DIR=../.uv-cache uv pip install -r requirements.txt
 UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Optional env vars:
+
+```bash
+export LLM_MODE=modelscope
+export DECISIONOS_SECRET_KEY="replace-with-strong-secret"
 ```
 
 Type checking:
@@ -60,3 +84,4 @@ UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python mypy app
 - Frontend uses Zustand persist with `skipHydration: true` and manual rehydrate.
 - SSE client uses `fetch` stream parsing and supports `AbortController`.
 - Backend mock outputs are deterministic by `idea_seed`.
+- AI provider API keys are stored encrypted in SQLite using `DECISIONOS_SECRET_KEY` (set this in production).

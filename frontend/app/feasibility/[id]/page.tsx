@@ -1,17 +1,14 @@
-import { FeasibilityDetailClient } from '../../../components/feasibility/FeasibilityDetailClient'
+import { redirect } from 'next/navigation'
 
-type FeasibilityDetailPageProps = {
+type LegacyFeasibilityDetailPageProps = {
   params: Promise<{
     id: string
   }>
 }
 
-export default async function FeasibilityDetailPage({ params }: FeasibilityDetailPageProps) {
-  const { id } = await params
-
-  return (
-    <main className="p-6">
-      <FeasibilityDetailClient planId={id} />
-    </main>
-  )
+export default async function LegacyFeasibilityDetailPage({
+  params,
+}: LegacyFeasibilityDetailPageProps) {
+  await params
+  redirect('/ideas')
 }

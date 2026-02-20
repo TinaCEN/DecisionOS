@@ -1,9 +1,5 @@
-import { EntryCards } from '../components/home/EntryCards'
+import { redirect } from 'next/navigation'
 
 export default function HomePage() {
-  return (
-    <main>
-      <EntryCards />
-    </main>
-  )
+  redirect('/ideas')
 }

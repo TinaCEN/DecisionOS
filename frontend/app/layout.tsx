@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 
+import './globals.css'
+import { AppShell } from '../components/layout/AppShell'
 import { StoreHydration } from '../components/providers/StoreHydration'
 import { ToasterProvider } from '../components/providers/ToasterProvider'
 
@@ -15,10 +17,10 @@ type RootLayoutProps = Readonly<{
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="zh-CN">
-      <body className="min-h-screen bg-neutral-50 text-neutral-900">
+      <body className="min-h-screen bg-slate-100 text-slate-900 antialiased">
         <StoreHydration />
         <ToasterProvider />
-        {children}
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   )

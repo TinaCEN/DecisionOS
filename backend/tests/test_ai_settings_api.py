@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+import tempfile
+import unittest
+
+from tests.test_api_ideas_and_agents import _AsgiTestClient
+
+
+class AISettingsApiTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self._tmpdir.name, "decisionos-ai-settings-test.db")
+        os.environ["DECISIONOS_DB_PATH"] = self.db_path
+
+        from app.core.settings import get_settings
+        from app.main import create_app
+
+        get_settings.cache_clear()
+        self.client = _AsgiTestClient(create_app())
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def test_get_default_ai_settings(self) -> None:
+        status, payload = self.client.request_json("GET", "/settings/ai")
+        self.assertEqual(status, 200)
+        assert payload is not None
+        self.assertEqual(payload["id"], "default")
+        self.assertEqual(payload["providers"], [])
+        self.assertEqual(
+            payload["routing"],
+            {"opportunity": [], "feasibility": [], "scope": [], "prd": []},
+        )
+
+    def test_patch_ai_settings_round_trip(self) -> None:
+        patch_status, patch_payload = self.client.request_json(
+            "PATCH",
+            "/settings/ai",
+            {
+                "providers": [
+                    {
+                        "id": "openai_main",
+                        "name": "OpenAI Main",
+                        "kind": "openai_compatible",
+                        "base_url": "https://api.openai.com/v1",
+                        "api_key": "sk-local-test",
+                        "model": "gpt-4o-mini",
+                        "enabled": True,
+                        "timeout_seconds": 20,
+                        "temperature": 0.2,
+                    },
+                    {
+                        "id": "local_gateway",
+                        "name": "Local Gateway",
+                        "kind": "generic_json",
+                        "base_url": "http://127.0.0.1:8080/generate",
+                        "enabled": True,
+                        "timeout_seconds": 15,
+                        "temperature": 0.1,
+                    },
+                ],
+                "routing": {
+                    "opportunity": ["openai_main", "local_gateway"],
+                    "feasibility": ["local_gateway"],
+                    "scope": ["local_gateway"],
+                    "prd": ["openai_main"],
+                },
+            },
+        )
+        self.assertEqual(patch_status, 200)
+        assert patch_payload is not None
+        self.assertEqual(len(patch_payload["providers"]), 2)
+        self.assertEqual(patch_payload["routing"]["opportunity"], ["openai_main", "local_gateway"])
+
+        get_status, get_payload = self.client.request_json("GET", "/settings/ai")
+        self.assertEqual(get_status, 200)
+        assert get_payload is not None
+        self.assertEqual(get_payload["routing"]["prd"], ["openai_main"])
+        self.assertEqual(get_payload["providers"][1]["kind"], "generic_json")
+        self.assertEqual(get_payload["providers"][0]["api_key"], "sk-local-test")
+
+        with sqlite3.connect(self.db_path) as connection:
+            row = connection.execute(
+                "SELECT config_json FROM ai_settings WHERE id = ?",
+                ("default",),
+            ).fetchone()
+            assert row is not None
+            raw_config = str(row[0])
+            self.assertNotIn("sk-local-test", raw_config)
+            self.assertIn("enc:v1:", raw_config)
+
+    def test_test_provider_endpoint_returns_failure_for_unreachable_provider(self) -> None:
+        status, payload = self.client.request_json(
+            "POST",
+            "/settings/ai/test",
+            {
+                "provider": {
+                    "id": "unreachable_local",
+                    "name": "Unreachable Local",
+                    "kind": "generic_json",
+                    "base_url": "http://127.0.0.1:65533/generate",
+                    "enabled": True,
+                    "timeout_seconds": 1,
+                    "temperature": 0.2,
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        assert payload is not None
+        self.assertEqual(payload["ok"], False)
+        self.assertGreaterEqual(payload["latency_ms"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -15,14 +15,20 @@ export function PathCards({ paths, selectedPathId, onSelect }: PathCardsProps) {
           <button
             key={path.id}
             type="button"
+            aria-pressed={selected}
+            disabled={!onSelect}
             onClick={() => onSelect?.(path.id)}
             className={[
-              'rounded-xl border p-4 text-left',
-              selected ? 'border-black bg-black text-white' : 'border-black/20 bg-white',
+              'group rounded-2xl border p-4 text-left shadow-sm transition-all duration-200 motion-reduce:transition-none',
+              'focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:outline-none',
+              'disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none',
+              selected
+                ? 'border-slate-900 bg-slate-900 text-slate-50 shadow-md shadow-slate-900/20'
+                : 'border-slate-200 bg-white text-slate-800 hover:-translate-y-0.5 hover:border-cyan-400/60 hover:bg-cyan-50/40 hover:shadow-md active:translate-y-0',
             ].join(' ')}
           >
-            <div className="text-sm font-semibold">{path.name}</div>
-            <div className="mt-1 text-xs opacity-80">{path.focus}</div>
+            <div className="text-sm font-semibold tracking-tight">{path.name}</div>
+            <div className="mt-1 text-xs leading-5 text-current/80">{path.focus}</div>
           </button>
         )
       })}

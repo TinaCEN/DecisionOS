@@ -39,6 +39,7 @@ __pycache__/
 *.py[cod]
 /backend/.venv/
 .uv-cache/
+/backend/*.db
 
 # vercel
 .vercel
@@ -46,3 +47,6 @@ __pycache__/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local agent workspace
+.agents/

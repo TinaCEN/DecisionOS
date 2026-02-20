@@ -1,8 +1,11 @@
 import { z } from 'zod'
 
-export const directionIdSchema = z.enum(['A', 'B', 'C'])
+export const directionIdSchema = z.enum(['A', 'B', 'C', 'D', 'E', 'F'])
 export const pathIdSchema = z.enum(['pathA', 'pathB', 'pathC'])
 export const prioritySchema = z.enum(['P0', 'P1', 'P2'])
+export const OPPORTUNITY_MIN_COUNT = 1
+export const OPPORTUNITY_MAX_COUNT = 6
+export const OPPORTUNITY_DEFAULT_COUNT = 3
 
 export const directionSchema = z.object({
   id: directionIdSchema,
@@ -13,10 +16,16 @@ export const directionSchema = z.object({
 
 export const opportunityInputSchema = z.object({
   idea_seed: z.string().min(1),
+  count: z
+    .number()
+    .int()
+    .min(OPPORTUNITY_MIN_COUNT)
+    .max(OPPORTUNITY_MAX_COUNT)
+    .default(OPPORTUNITY_DEFAULT_COUNT),
 })
 
 export const opportunityOutputSchema = z.object({
-  directions: z.array(directionSchema).length(3),
+  directions: z.array(directionSchema).min(OPPORTUNITY_MIN_COUNT).max(OPPORTUNITY_MAX_COUNT),
 })
 
 export const pathOptionSchema = z.object({
@@ -26,9 +35,9 @@ export const pathOptionSchema = z.object({
 })
 
 export const PATHS = [
-  { id: 'pathA', name: '功能定义路径', focus: '做什么' },
-  { id: 'pathB', name: '决策压缩路径', focus: '不做什么' },
-  { id: 'pathC', name: '快速验证路径', focus: '最小可演示' },
+  { id: 'pathA', name: 'Feature Definition Path', focus: 'What to build' },
+  { id: 'pathB', name: 'Decision Compression Path', focus: 'What not to build' },
+  { id: 'pathC', name: 'Rapid Validation Path', focus: 'Smallest demoable slice' },
 ] satisfies Array<z.infer<typeof pathOptionSchema>>
 
 export const scoreBreakdownSchema = z.object({
@@ -113,9 +122,27 @@ export const prdOutputSchema = z.object({
   sections: prdSectionsSchema,
 })
 
+export const ideaStageSchema = z.enum(['idea_canvas', 'feasibility', 'scope_freeze', 'prd'])
+
+export const ideaStatusSchema = z.enum(['draft', 'active', 'frozen', 'archived'])
+
+export const ideaSummarySchema = z.object({
+  id: z.string().min(1),
+  workspace_id: z.string().min(1),
+  title: z.string().min(1),
+  idea_seed: z.string().nullable().optional(),
+  stage: ideaStageSchema,
+  status: ideaStatusSchema,
+  version: z.number().int().nonnegative(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+  archived_at: z.string().nullable().optional(),
+})
+
 export const decisionContextSchema = z.object({
   session_id: z.string().min(1),
   created_at: z.string().min(1),
+  context_schema_version: z.number().int().positive().optional(),
   idea_seed: z.string().min(1).optional(),
   opportunity: opportunityOutputSchema.optional(),
   selected_direction_id: directionIdSchema.optional(),
@@ -125,6 +152,81 @@ export const decisionContextSchema = z.object({
   scope: scopeOutputSchema.optional(),
   scope_frozen: z.boolean().optional(),
   prd: prdOutputSchema.optional(),
+})
+
+export const ideaDetailSchema = ideaSummarySchema.extend({
+  context: decisionContextSchema,
+})
+
+export const ideasListResponseSchema = z.object({
+  items: z.array(ideaSummarySchema),
+  next_cursor: z.string().nullable().optional(),
+})
+
+export const createIdeaRequestSchema = z.object({
+  title: z.string().min(1),
+  idea_seed: z.string().optional(),
+})
+
+export const patchIdeaRequestSchema = z.object({
+  title: z.string().min(1).optional(),
+  status: ideaStatusSchema.optional(),
+  version: z.number().int().nonnegative(),
+})
+
+export const patchIdeaContextRequestSchema = z.object({
+  context: decisionContextSchema,
+  version: z.number().int().nonnegative(),
+})
+
+export const agentEnvelopeSchema = z.object({
+  idea_id: z.string().min(1),
+  idea_version: z.number().int().nonnegative(),
+  data: z.unknown(),
+})
+
+export const aiProviderKindSchema = z.enum(['generic_json', 'openai_compatible'])
+
+export const aiProviderConfigSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: aiProviderKindSchema,
+  base_url: z.string().min(1),
+  api_key: z.string().optional(),
+  model: z.string().optional(),
+  enabled: z.boolean().default(true),
+  timeout_seconds: z.number().min(1).max(120).default(20),
+  temperature: z.number().min(0).max(2).default(0.2),
+})
+
+export const aiRoutingConfigSchema = z.object({
+  opportunity: z.array(z.string().min(1)).default([]),
+  feasibility: z.array(z.string().min(1)).default([]),
+  scope: z.array(z.string().min(1)).default([]),
+  prd: z.array(z.string().min(1)).default([]),
+})
+
+export const aiSettingsSchema = z.object({
+  id: z.string().min(1),
+  providers: z.array(aiProviderConfigSchema),
+  routing: aiRoutingConfigSchema,
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+})
+
+export const patchAiSettingsRequestSchema = z.object({
+  providers: z.array(aiProviderConfigSchema),
+  routing: aiRoutingConfigSchema,
+})
+
+export const testAiProviderRequestSchema = z.object({
+  provider: aiProviderConfigSchema,
+})
+
+export const testAiProviderResponseSchema = z.object({
+  ok: z.boolean(),
+  latency_ms: z.number().int().nonnegative(),
+  message: z.string().min(1),
 })
 
 export type DirectionId = z.infer<typeof directionIdSchema>
@@ -147,3 +249,19 @@ export type PrdSections = z.infer<typeof prdSectionsSchema>
 export type PrdInput = z.infer<typeof prdInputSchema>
 export type PrdOutput = z.infer<typeof prdOutputSchema>
 export type DecisionContext = z.infer<typeof decisionContextSchema>
+export type IdeaStage = z.infer<typeof ideaStageSchema>
+export type IdeaStatus = z.infer<typeof ideaStatusSchema>
+export type IdeaSummary = z.infer<typeof ideaSummarySchema>
+export type IdeaDetail = z.infer<typeof ideaDetailSchema>
+export type IdeasListResponse = z.infer<typeof ideasListResponseSchema>
+export type CreateIdeaRequest = z.infer<typeof createIdeaRequestSchema>
+export type PatchIdeaRequest = z.infer<typeof patchIdeaRequestSchema>
+export type PatchIdeaContextRequest = z.infer<typeof patchIdeaContextRequestSchema>
+export type AgentEnvelope = z.infer<typeof agentEnvelopeSchema>
+export type AIProviderKind = z.infer<typeof aiProviderKindSchema>
+export type AIProviderConfig = z.infer<typeof aiProviderConfigSchema>
+export type AIRoutingConfig = z.infer<typeof aiRoutingConfigSchema>
+export type AISettings = z.infer<typeof aiSettingsSchema>
+export type PatchAISettingsRequest = z.infer<typeof patchAiSettingsRequestSchema>
+export type TestAIProviderRequest = z.infer<typeof testAiProviderRequestSchema>
+export type TestAIProviderResponse = z.infer<typeof testAiProviderResponseSchema>

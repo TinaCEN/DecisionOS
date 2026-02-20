@@ -16,6 +16,40 @@ type StreamPostHandlers<TProgress = unknown, TPartial = unknown, TDone = unknown
   onError?: (error: unknown) => void
 }
 
+type SseErrorData = {
+  code?: string
+  message?: string
+}
+
+export class SseEventError extends Error {
+  payload: unknown
+
+  constructor(payload: unknown) {
+    const message = getSseErrorMessage(payload)
+    super(message)
+    this.name = 'SseEventError'
+    this.payload = payload
+  }
+}
+
+export const isSseEventError = (error: unknown): error is SseEventError => {
+  return error instanceof SseEventError
+}
+
+const getSseErrorMessage = (payload: unknown): string => {
+  if (typeof payload === 'object' && payload !== null) {
+    const data = payload as SseErrorData
+    if (data.code && data.message) {
+      return `${data.code}: ${data.message}`
+    }
+    if (data.message) {
+      return data.message
+    }
+  }
+
+  return 'SSE stream failed.'
+}
+
 const parseStreamMessage = (message: ServerSentEventMessage): SseEvent | null => {
   if (!message.data) {
     return null
@@ -79,8 +113,17 @@ export const streamPost = async <
         handlers.onDone?.(parsed.data as TDone)
         continue
       }
+
+      if (parsed.event === 'error') {
+        throw new SseEventError(parsed.data)
+      }
     }
   } catch (error) {
+    if (isSseEventError(error)) {
+      handlers.onError?.(error)
+      throw error
+    }
+
     if (error instanceof Response) {
       const bodyText = await error.text().catch(() => '')
       const responseError = new Error(

@@ -22,6 +22,7 @@ type DecisionStore = {
   scope: (scope: ScopeOutput) => void
   scopeFrozen: (frozen: boolean) => void
   prd: (prd: PrdOutput) => void
+  replaceContext: (context: DecisionContext) => void
   reset: () => void
 }
 
@@ -138,6 +139,10 @@ export const useDecisionStore = create<DecisionStore>()(
             ...state.context,
             prd,
           },
+        })),
+      replaceContext: (context) =>
+        set(() => ({
+          context,
         })),
       reset: () => set({ context: createInitialContext() }),
     }),
