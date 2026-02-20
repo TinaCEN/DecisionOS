@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { createIdea, getIdea, listIdeas } from './api'
+import { createIdea, deleteIdea, getIdea, listIdeas } from './api'
 import type { IdeaDetail, IdeaSummary } from './schemas'
 
 type IdeasStoreState = {
@@ -17,6 +17,7 @@ type IdeasStoreState = {
   loadIdeas: () => Promise<void>
   createIdea: (title: string) => Promise<void>
   loadIdeaDetail: (ideaId: string) => Promise<IdeaDetail | null>
+  deleteIdea: (ideaId: string) => Promise<void>
 }
 
 const pickDefaultActiveIdea = (
@@ -97,6 +98,10 @@ export const useIdeasStore = create<IdeasStoreState>()(
           set({ loading: false, error: message })
           return null
         }
+      },
+      deleteIdea: async (ideaId) => {
+        await deleteIdea(ideaId)
+        set((s) => ({ ideas: s.ideas.filter((i) => i.id !== ideaId) }))
       },
     }),
     {

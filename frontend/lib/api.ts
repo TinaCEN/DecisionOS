@@ -121,6 +121,11 @@ export const patchIdeaContext = async (
   return await jsonPatch<PatchIdeaContextRequest, IdeaDetail>(`/ideas/${ideaId}/context`, payload)
 }
 
+export async function deleteIdea(ideaId: string): Promise<void> {
+  const r = await fetch(buildApiUrl(`/ideas/${ideaId}`), { method: 'DELETE' })
+  if (!r.ok) throw new Error(await r.text())
+}
+
 export const getAiSettings = async (): Promise<AISettings> => {
   return await jsonGet<AISettings>('/settings/ai')
 }
