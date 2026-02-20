@@ -1,0 +1,250 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import tempfile
+import unittest
+from dataclasses import dataclass
+
+
+class DagApiTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        db_path = os.path.join(self._tmpdir.name, "test.db")
+        os.environ["DECISIONOS_DB_PATH"] = db_path
+        os.environ["LLM_MODE"] = "mock"
+
+        from app.core.settings import get_settings
+        from app.main import create_app
+
+        get_settings.cache_clear()
+        self.client = _AsgiTestClient(create_app())
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def _create_idea(self) -> str:
+        status, body = self.client.request_json(
+            "POST", "/ideas", {"title": "Test", "idea_seed": "seed"}
+        )
+        self.assertEqual(status, 201)
+        assert body is not None
+        return body["id"]
+
+    def test_create_root_node(self) -> None:
+        idea_id = self._create_idea()
+        status, body = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root idea"}
+        )
+        self.assertEqual(status, 201)
+        assert body is not None
+        self.assertEqual(body["depth"], 0)
+        self.assertIsNone(body["parent_id"])
+        self.assertEqual(body["content"], "root idea")
+
+    def test_list_nodes_empty(self) -> None:
+        idea_id = self._create_idea()
+        status, body = self.client.request_json("GET", f"/ideas/{idea_id}/nodes")
+        self.assertEqual(status, 200)
+        assert body is not None
+        self.assertEqual(body, [])
+
+    def test_list_nodes_after_create(self) -> None:
+        idea_id = self._create_idea()
+        self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        status, body = self.client.request_json("GET", f"/ideas/{idea_id}/nodes")
+        self.assertEqual(status, 200)
+        assert body is not None
+        self.assertEqual(len(body), 1)
+
+    def test_get_single_node(self) -> None:
+        idea_id = self._create_idea()
+        _, created = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        assert created is not None
+        node_id = created["id"]
+
+        status, body = self.client.request_json(
+            "GET", f"/ideas/{idea_id}/nodes/{node_id}"
+        )
+        self.assertEqual(status, 200)
+        assert body is not None
+        self.assertEqual(body["id"], node_id)
+
+    def test_user_expand(self) -> None:
+        idea_id = self._create_idea()
+        _, root = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        assert root is not None
+
+        status, body = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/nodes/{root['id']}/expand/user",
+            {"description": "make it for B2B"},
+        )
+        self.assertEqual(status, 201)
+        assert body is not None
+        self.assertIsInstance(body, list)
+        self.assertGreaterEqual(len(body), 1)
+        self.assertEqual(body[0]["depth"], 1)
+        self.assertEqual(body[0]["parent_id"], root["id"])
+
+    def test_confirm_path(self) -> None:
+        idea_id = self._create_idea()
+        _, root = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        assert root is not None
+
+        status, body = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/paths",
+            {"node_chain": [root["id"]]},
+        )
+        self.assertEqual(status, 201)
+        assert body is not None
+        self.assertIn("path_md", body)
+        self.assertIn("path_json", body)
+
+    def test_get_latest_path_404_when_none(self) -> None:
+        idea_id = self._create_idea()
+        status, _ = self.client.request_json(
+            "GET", f"/ideas/{idea_id}/paths/latest"
+        )
+        self.assertEqual(status, 404)
+
+    def test_get_latest_path_after_confirm(self) -> None:
+        idea_id = self._create_idea()
+        _, root = self.client.request_json(
+            "POST", f"/ideas/{idea_id}/nodes", {"content": "root"}
+        )
+        assert root is not None
+
+        self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/paths",
+            {"node_chain": [root["id"]]},
+        )
+
+        status, body = self.client.request_json(
+            "GET", f"/ideas/{idea_id}/paths/latest"
+        )
+        self.assertEqual(status, 200)
+        assert body is not None
+        self.assertIn("path_md", body)
+
+    def test_node_not_found(self) -> None:
+        idea_id = self._create_idea()
+        status, _ = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/nodes/nonexistent/expand/user",
+            {"description": "test"},
+        )
+        self.assertEqual(status, 404)
+
+    def test_idea_not_found_for_nodes(self) -> None:
+        status, _ = self.client.request_json("GET", "/ideas/nonexistent/nodes")
+        self.assertEqual(status, 404)
+
+
+@dataclass(frozen=True)
+class _RawResponse:
+    status_code: int
+    body: bytes
+
+
+class _AsgiTestClient:
+    def __init__(self, app: object) -> None:
+        self._app = app
+
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+    ) -> tuple[int, dict[str, object] | list[object] | None]:
+        response = self.request_raw(method, path, payload)
+        if not response.body:
+            return response.status_code, None
+        return response.status_code, json.loads(response.body.decode("utf-8"))
+
+    def request_raw(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+    ) -> _RawResponse:
+        body = b""
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+        return asyncio.run(
+            _run_asgi_request(app=self._app, method=method, path=path, body=body)
+        )
+
+
+async def _run_asgi_request(
+    *,
+    app: object,
+    method: str,
+    path: str,
+    body: bytes,
+) -> _RawResponse:
+    request_sent = False
+    response_started = False
+    response_status = 500
+    body_parts: list[bytes] = []
+    hold_receive = asyncio.Event()
+
+    async def receive() -> dict[str, object]:
+        nonlocal request_sent
+        if not request_sent:
+            request_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        await hold_receive.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, object]) -> None:
+        nonlocal response_started, response_status
+        message_type = str(message.get("type"))
+        if message_type == "http.response.start":
+            response_started = True
+            response_status = int(message.get("status", 500))
+            return
+        if message_type == "http.response.body":
+            raw = message.get("body", b"")
+            if isinstance(raw, bytes):
+                body_parts.append(raw)
+            elif isinstance(raw, str):
+                body_parts.append(raw.encode("utf-8"))
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": method.upper(),
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("ascii"),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/json")],
+        "client": ("testclient", 123),
+        "server": ("testserver", 80),
+        "state": {},
+    }
+
+    await app(scope, receive, send)
+
+    if not response_started:
+        raise RuntimeError("ASGI response did not start")
+
+    return _RawResponse(status_code=response_status, body=b"".join(body_parts))
+
+
+if __name__ == "__main__":
+    unittest.main()
