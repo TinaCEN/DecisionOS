@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import TypeVar, cast
 from urllib import request
@@ -9,11 +10,21 @@ from pydantic import BaseModel
 
 from app.core.prompts import SYSTEM_PROMPT
 from app.db.repo_ai import AISettingsRepository
-from app.schemas.ai_settings import AIProviderConfig, ProviderKind, TaskName
+from app.schemas.ai_settings import AIProviderConfig, TaskName
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 _settings_repo = AISettingsRepository()
+logger = logging.getLogger(__name__)
+
+
+def _get_active_provider() -> AIProviderConfig:
+    """Return the single enabled provider, or raise if none configured."""
+    settings = _settings_repo.get_settings().config
+    enabled = [p for p in settings.providers if p.enabled]
+    if not enabled:
+        raise RuntimeError("No enabled AI provider configured. Visit Settings to enable one.")
+    return enabled[0]
 
 
 def generate_structured(
@@ -22,41 +33,75 @@ def generate_structured(
     user_prompt: str,
     schema_model: type[SchemaT],
 ) -> SchemaT:
-    settings = _settings_repo.get_settings().config
-    enabled_providers = [provider for provider in settings.providers if provider.enabled]
-    provider_map = {provider.id: provider for provider in enabled_providers}
-    ordered_provider_ids = getattr(settings.routing, task)
-    if ordered_provider_ids:
-        providers = [
-            provider_map[provider_id]
-            for provider_id in ordered_provider_ids
-            if provider_id in provider_map
-        ]
-    else:
-        providers = enabled_providers
-
-    if not providers:
-        raise RuntimeError(f"No enabled providers configured for task: {task}")
-
+    provider = _get_active_provider()
+    logger.info("generate_structured task=%s provider=%s model=%s", task, provider.id, provider.model)
     response_schema = schema_model.model_json_schema()
-    errors: list[str] = []
-    for provider in providers:
-        try:
-            raw = _invoke_provider(
-                provider=provider,
-                task=task,
-                user_prompt=user_prompt,
-                response_schema=response_schema,
-            )
-            return schema_model.model_validate(raw)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{provider.id}: {exc}")
+    try:
+        raw = _invoke_provider(
+            provider=provider,
+            task=task,
+            user_prompt=user_prompt,
+            response_schema=response_schema,
+        )
+        result = schema_model.model_validate(raw)
+        logger.info("generate_structured task=%s provider=%s SUCCESS", task, provider.id)
+        return result
+    except Exception as exc:
+        logger.error("generate_structured task=%s provider=%s FAILED: %s", task, provider.id, exc)
+        raise
 
-    raise RuntimeError(f"All providers failed for task {task}: {' | '.join(errors)}")
+
+def generate_text(*, task: TaskName, user_prompt: str) -> str:
+    """Call provider and return raw text content (no schema enforcement)."""
+    provider = _get_active_provider()
+    logger.info("generate_text task=%s provider=%s model=%s", task, provider.id, provider.model)
+    try:
+        result = _invoke_provider_text(provider=provider, user_prompt=user_prompt)
+        logger.info("generate_text task=%s provider=%s SUCCESS len=%d", task, provider.id, len(result))
+        return result
+    except Exception as exc:
+        logger.error("generate_text task=%s provider=%s FAILED: %s", task, provider.id, exc)
+        raise
+
+
+def _invoke_provider_text(*, provider: AIProviderConfig, user_prompt: str) -> str:
+    """Invoke provider and return plain text response content."""
+    endpoint = provider.base_url.rstrip("/")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint = f"{endpoint}/chat/completions"
+
+    body: dict[str, object] = {
+        "model": provider.model or "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": provider.temperature,
+    }
+    logger.debug("_invoke_provider_text url=%s model=%s", endpoint, body["model"])
+    decoded = _post_json(
+        url=endpoint,
+        body=body,
+        timeout_seconds=provider.timeout_seconds,
+        api_key=provider.api_key,
+    )
+    if not isinstance(decoded, dict):
+        raise RuntimeError("Provider response is not an object")
+    choices = decoded.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError("Provider response missing choices")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if isinstance(content, list):
+        content = "\n".join(
+            item["text"] for item in content if isinstance(item, dict) and item.get("type") == "text"
+        )
+    return str(content)
 
 
 def test_provider_connection(provider: AIProviderConfig) -> tuple[bool, int, str]:
     started = time.perf_counter()
+    logger.info("test_provider_connection provider=%s kind=%s", provider.id, provider.kind)
     try:
         if provider.kind == "generic_json":
             _probe_generic_json(provider)
@@ -66,9 +111,13 @@ def test_provider_connection(provider: AIProviderConfig) -> tuple[bool, int, str
             raise RuntimeError(f"Unsupported provider kind: {provider.kind}")
     except Exception as exc:  # noqa: BLE001
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        logger.warning(
+            "test_provider_connection provider=%s FAILED %dms: %s", provider.id, elapsed_ms, exc
+        )
         return False, elapsed_ms, str(exc)
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
+    logger.info("test_provider_connection provider=%s OK %dms", provider.id, elapsed_ms)
     return True, elapsed_ms, "Connection successful"
 
 
@@ -124,6 +173,7 @@ def _probe_openai_compatible(provider: AIProviderConfig) -> None:
     if provider.api_key:
         headers["Authorization"] = f"Bearer {provider.api_key}"
 
+    logger.debug("_probe_openai_compatible url=%s", models_url)
     req = request.Request(models_url, headers=headers, method="GET")
     with request.urlopen(req, timeout=provider.timeout_seconds) as response:
         raw = response.read().decode("utf-8")
@@ -147,6 +197,9 @@ def _call_generic_json_provider(
         "temperature": provider.temperature,
         "task": task,
     }
+    logger.debug(
+        "_call_generic_json_provider url=%s task=%s model=%s", provider.base_url, task, provider.model
+    )
     decoded = _post_json(
         url=provider.base_url,
         body=body,
@@ -183,6 +236,7 @@ def _call_openai_compatible_provider(
             },
         },
     }
+    logger.debug("_call_openai_compatible_provider url=%s model=%s", endpoint, body["model"])
     decoded = _post_json(
         url=endpoint,
         body=body,

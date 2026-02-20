@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import json
 import logging
 from typing import TypeVar
 
@@ -92,6 +93,29 @@ def generate_prd(payload: PRDInput) -> PRDOutput:
     )
 
 
+def _parse_nodes_from_text(text: str) -> list[dict[str, str]]:
+    """Parse LLM text response into list of {content, edge_label} dicts."""
+    text = text.strip()
+    # Strip markdown code fences if present
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    parsed = json.loads(text)
+    if isinstance(parsed, list):
+        return [
+            {"content": str(n.get("content", "")), "edge_label": str(n.get("edge_label", ""))}
+            for n in parsed if isinstance(n, dict)
+        ]
+    if isinstance(parsed, dict) and "nodes" in parsed:
+        nodes = parsed["nodes"]
+        if isinstance(nodes, list):
+            return [
+                {"content": str(n.get("content", "")), "edge_label": str(n.get("edge_label", ""))}
+                for n in nodes if isinstance(n, dict)
+            ]
+    raise ValueError(f"Unexpected nodes response shape: {text[:200]}")
+
+
 def generate_expand_nodes(
     content: str,
     pattern_label: str,
@@ -101,6 +125,14 @@ def generate_expand_nodes(
     """Return list of {content, edge_label} dicts for AI node expansion."""
     return generate_json(
         mock_factory=lambda: mock_data.MOCK_EXPAND_NODES,
+        model_factory=lambda: _parse_nodes_from_text(
+            ai_gateway.generate_text(
+                task="opportunity",
+                user_prompt=prompts.expand_node_prompt(
+                    content, pattern_label, pattern_description, chain_summary
+                ),
+            )
+        ),
     )
 
 
@@ -112,6 +144,14 @@ def generate_expand_node_user(
     """Return list of {content, edge_label} dicts for user-guided expansion."""
     return generate_json(
         mock_factory=lambda: mock_data.MOCK_EXPAND_NODES[:1],
+        model_factory=lambda: _parse_nodes_from_text(
+            ai_gateway.generate_text(
+                task="opportunity",
+                user_prompt=prompts.expand_node_user_prompt(
+                    content, user_direction, chain_summary
+                ),
+            )
+        ),
     )
 
 
@@ -121,6 +161,18 @@ def generate_path_summary(node_chain_text: str) -> str:
     if settings.llm_mode == "mock":
         return mock_data.MOCK_PATH_SUMMARY
     try:
-        return mock_data.MOCK_PATH_SUMMARY
-    except Exception:  # noqa: BLE001
+        raw = ai_gateway.generate_text(
+            task="opportunity",
+            user_prompt=prompts.summarize_path_prompt(node_chain_text),
+        ).strip()
+        # Model may return {"summary": "..."} or plain text
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and "summary" in parsed:
+                return str(parsed["summary"])
+        except json.JSONDecodeError:
+            pass
+        return raw
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Path summary AI call failed, fallback to mock: %s", exc)
         return mock_data.MOCK_PATH_SUMMARY

@@ -23,15 +23,7 @@ class AISettingsRecord:
 
 
 def default_ai_settings_payload() -> dict[str, object]:
-    return {
-        "providers": [],
-        "routing": {
-            "opportunity": [],
-            "feasibility": [],
-            "scope": [],
-            "prd": [],
-        },
-    }
+    return {"providers": []}
 
 
 class AISettingsRepository:
@@ -136,7 +128,6 @@ def to_schema(record: AISettingsRecord) -> AISettingsDetail:
     return AISettingsDetail(
         id=record.id,
         providers=record.config.providers,
-        routing=record.config.routing,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

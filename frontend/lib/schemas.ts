@@ -152,6 +152,7 @@ export const decisionContextSchema = z.object({
   scope: scopeOutputSchema.optional(),
   scope_frozen: z.boolean().optional(),
   prd: prdOutputSchema.optional(),
+  confirmed_dag_path_id: z.string().optional(),
 })
 
 export const ideaDetailSchema = ideaSummarySchema.extend({
@@ -199,24 +200,15 @@ export const aiProviderConfigSchema = z.object({
   temperature: z.number().min(0).max(2).default(0.2),
 })
 
-export const aiRoutingConfigSchema = z.object({
-  opportunity: z.array(z.string().min(1)).default([]),
-  feasibility: z.array(z.string().min(1)).default([]),
-  scope: z.array(z.string().min(1)).default([]),
-  prd: z.array(z.string().min(1)).default([]),
-})
-
 export const aiSettingsSchema = z.object({
   id: z.string().min(1),
   providers: z.array(aiProviderConfigSchema),
-  routing: aiRoutingConfigSchema,
   created_at: z.string().min(1),
   updated_at: z.string().min(1),
 })
 
 export const patchAiSettingsRequestSchema = z.object({
   providers: z.array(aiProviderConfigSchema),
-  routing: aiRoutingConfigSchema,
 })
 
 export const testAiProviderRequestSchema = z.object({
@@ -260,7 +252,6 @@ export type PatchIdeaContextRequest = z.infer<typeof patchIdeaContextRequestSche
 export type AgentEnvelope = z.infer<typeof agentEnvelopeSchema>
 export type AIProviderKind = z.infer<typeof aiProviderKindSchema>
 export type AIProviderConfig = z.infer<typeof aiProviderConfigSchema>
-export type AIRoutingConfig = z.infer<typeof aiRoutingConfigSchema>
 export type AISettings = z.infer<typeof aiSettingsSchema>
 export type PatchAISettingsRequest = z.infer<typeof patchAiSettingsRequestSchema>
 export type TestAIProviderRequest = z.infer<typeof testAiProviderRequestSchema>
