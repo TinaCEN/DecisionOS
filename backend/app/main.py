@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.auth import require_authenticated_user
 from app.core.logging_config import setup_logging
+from app.core.rate_limit import InMemoryRateLimiter, resolve_client_identifier
 from app.core.request_logging import RequestLoggingMiddleware
 from app.core.settings import get_settings
 from app.db.bootstrap import initialize_database
@@ -18,6 +22,8 @@ from app.routes.idea_prd_feedback import router as idea_prd_feedback_router
 from app.routes.idea_scope import router as idea_scope_router
 from app.routes.ideas import router as ideas_router
 from app.routes.workspaces import router as workspaces_router
+
+_IDEA_AGENTS_MUTATION_RE = re.compile(r"^/ideas/[^/]+/agents/[^/]+(?:/stream)?$")
 
 
 def create_app() -> FastAPI:
@@ -33,6 +39,43 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-Id"],
     )
+    limiter = InMemoryRateLimiter()
+
+    @app.middleware("http")
+    async def enforce_rate_limits(request, call_next):  # type: ignore[no-untyped-def]
+        method = request.method.upper()
+        path = request.url.path
+        client_id = resolve_client_identifier(request)
+
+        if method == "POST" and path == "/auth/login":
+            violation = limiter.consume(
+                key=f"login:{client_id}",
+                max_requests=settings.rate_limit_login_max_requests,
+                window_seconds=settings.rate_limit_login_window_seconds,
+                message="Too many login attempts. Please try again later.",
+            )
+            if violation is not None:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": violation.detail},
+                    headers={"Retry-After": str(violation.retry_after_seconds)},
+                )
+
+        if method == "POST" and _IDEA_AGENTS_MUTATION_RE.match(path):
+            violation = limiter.consume(
+                key=f"idea-agents:{client_id}",
+                max_requests=settings.rate_limit_idea_agents_max_requests,
+                window_seconds=settings.rate_limit_idea_agents_window_seconds,
+                message="Too many agent requests. Please try again later.",
+            )
+            if violation is not None:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": violation.detail},
+                    headers={"Retry-After": str(violation.retry_after_seconds)},
+                )
+
+        return await call_next(request)
 
     app.add_middleware(RequestLoggingMiddleware)
 

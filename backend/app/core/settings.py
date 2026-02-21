@@ -21,6 +21,10 @@ class Settings:
     seed_admin_password: str
     seed_test_username: str
     seed_test_password: str
+    rate_limit_login_max_requests: int
+    rate_limit_login_window_seconds: int
+    rate_limit_idea_agents_max_requests: int
+    rate_limit_idea_agents_window_seconds: int
 
 
 def _parse_cors_origins(raw: str | None) -> tuple[str, ...]:
@@ -107,4 +111,24 @@ def get_settings() -> Settings:
         seed_admin_password=seed_admin_password,
         seed_test_username=os.getenv("DECISIONOS_SEED_TEST_USERNAME", "test").strip() or "test",
         seed_test_password=os.getenv("DECISIONOS_SEED_TEST_PASSWORD", "test").strip() or "test",
+        rate_limit_login_max_requests=_parse_int(
+            os.getenv("DECISIONOS_RATE_LIMIT_LOGIN_MAX_REQUESTS"),
+            default=5,
+            minimum=1,
+        ),
+        rate_limit_login_window_seconds=_parse_int(
+            os.getenv("DECISIONOS_RATE_LIMIT_LOGIN_WINDOW_SECONDS"),
+            default=60,
+            minimum=1,
+        ),
+        rate_limit_idea_agents_max_requests=_parse_int(
+            os.getenv("DECISIONOS_RATE_LIMIT_IDEA_AGENTS_MAX_REQUESTS"),
+            default=30,
+            minimum=1,
+        ),
+        rate_limit_idea_agents_window_seconds=_parse_int(
+            os.getenv("DECISIONOS_RATE_LIMIT_IDEA_AGENTS_WINDOW_SECONDS"),
+            default=60,
+            minimum=1,
+        ),
     )

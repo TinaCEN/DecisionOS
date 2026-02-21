@@ -50,6 +50,47 @@ class AuthApiTestCase(unittest.TestCase):
         assert payload is not None
         self.assertEqual(payload["detail"]["code"], "AUTH_INVALID_CREDENTIALS")
 
+    def test_login_rate_limited_returns_429(self) -> None:
+        from app.core.settings import get_settings
+        from app.main import create_app
+
+        old_limit = os.environ.get("DECISIONOS_RATE_LIMIT_LOGIN_MAX_REQUESTS")
+        old_window = os.environ.get("DECISIONOS_RATE_LIMIT_LOGIN_WINDOW_SECONDS")
+        os.environ["DECISIONOS_RATE_LIMIT_LOGIN_MAX_REQUESTS"] = "2"
+        os.environ["DECISIONOS_RATE_LIMIT_LOGIN_WINDOW_SECONDS"] = "60"
+        get_settings.cache_clear()
+        rate_limited_client = _AsgiTestClient(create_app())
+        try:
+            for _ in range(2):
+                status, payload = rate_limited_client.request_json(
+                    "POST",
+                    "/auth/login",
+                    {"username": "admin", "password": "wrong-password"},
+                )
+                self.assertEqual(status, 401)
+                assert payload is not None
+                self.assertEqual(payload["detail"]["code"], "AUTH_INVALID_CREDENTIALS")
+
+            status, payload = rate_limited_client.request_json(
+                "POST",
+                "/auth/login",
+                {"username": "admin", "password": "wrong-password"},
+            )
+            self.assertEqual(status, 429)
+            assert payload is not None
+            self.assertEqual(payload["detail"]["code"], "RATE_LIMITED")
+        finally:
+            if old_limit is None:
+                os.environ.pop("DECISIONOS_RATE_LIMIT_LOGIN_MAX_REQUESTS", None)
+            else:
+                os.environ["DECISIONOS_RATE_LIMIT_LOGIN_MAX_REQUESTS"] = old_limit
+
+            if old_window is None:
+                os.environ.pop("DECISIONOS_RATE_LIMIT_LOGIN_WINDOW_SECONDS", None)
+            else:
+                os.environ["DECISIONOS_RATE_LIMIT_LOGIN_WINDOW_SECONDS"] = old_window
+            get_settings.cache_clear()
+
     def test_protected_route_requires_auth(self) -> None:
         status, payload = self.client.request_json("GET", "/ideas")
         self.assertEqual(status, 401)

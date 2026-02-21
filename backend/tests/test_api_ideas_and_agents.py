@@ -365,6 +365,68 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         assert stale_payload is not None
         self.assertEqual(stale_payload["detail"]["code"], "IDEA_VERSION_CONFLICT")
 
+    def test_idea_agents_routes_are_rate_limited(self) -> None:
+        from app.core.settings import get_settings
+        from app.main import create_app
+
+        old_limit = os.environ.get("DECISIONOS_RATE_LIMIT_IDEA_AGENTS_MAX_REQUESTS")
+        old_window = os.environ.get("DECISIONOS_RATE_LIMIT_IDEA_AGENTS_WINDOW_SECONDS")
+        os.environ["DECISIONOS_RATE_LIMIT_IDEA_AGENTS_MAX_REQUESTS"] = "2"
+        os.environ["DECISIONOS_RATE_LIMIT_IDEA_AGENTS_WINDOW_SECONDS"] = "60"
+        get_settings.cache_clear()
+        rate_limited_client = _AsgiTestClient(create_app())
+        try:
+            created_status, created = rate_limited_client.request_json(
+                "POST",
+                "/ideas",
+                {"title": "Rate Limited Agents Idea", "idea_seed": "seed"},
+            )
+            self.assertEqual(created_status, 201)
+            assert created is not None
+            idea_id = created["id"]
+
+            first_status, first_payload = rate_limited_client.request_json(
+                "POST",
+                f"/ideas/{idea_id}/agents/opportunity",
+                {"idea_seed": "seed", "version": created["version"]},
+            )
+            self.assertEqual(first_status, 200)
+            assert first_payload is not None
+
+            second_response = rate_limited_client.request_raw(
+                "POST",
+                f"/ideas/{idea_id}/agents/opportunity/stream",
+                {"idea_seed": "seed", "version": first_payload["idea_version"]},
+            )
+            self.assertEqual(second_response.status_code, 200)
+
+            third_status, third_payload = rate_limited_client.request_json(
+                "POST",
+                f"/ideas/{idea_id}/agents/feasibility",
+                {
+                    "idea_seed": "seed",
+                    "confirmed_path_id": "dag-path-1",
+                    "confirmed_node_id": "dag-node-1",
+                    "confirmed_node_content": "Validated DAG node content",
+                    "confirmed_path_summary": "DAG path summary",
+                    "version": first_payload["idea_version"] + 1,
+                },
+            )
+            self.assertEqual(third_status, 429)
+            assert third_payload is not None
+            self.assertEqual(third_payload["detail"]["code"], "RATE_LIMITED")
+        finally:
+            if old_limit is None:
+                os.environ.pop("DECISIONOS_RATE_LIMIT_IDEA_AGENTS_MAX_REQUESTS", None)
+            else:
+                os.environ["DECISIONOS_RATE_LIMIT_IDEA_AGENTS_MAX_REQUESTS"] = old_limit
+
+            if old_window is None:
+                os.environ.pop("DECISIONOS_RATE_LIMIT_IDEA_AGENTS_WINDOW_SECONDS", None)
+            else:
+                os.environ["DECISIONOS_RATE_LIMIT_IDEA_AGENTS_WINDOW_SECONDS"] = old_window
+            get_settings.cache_clear()
+
     def test_stream_persists_only_on_done_and_bumps_version(self) -> None:
         created_status, created = self.client.request_json(
             "POST",
