@@ -80,6 +80,7 @@ Agent 路由必须迁移为 idea-scoped：
 - `/ideas/{idea_id}/agents/feasibility/stream`
 - `/ideas/{idea_id}/agents/scope`
 - `/ideas/{idea_id}/agents/prd`
+- `/ideas/{idea_id}/prd/feedback`
 
 DAG canvas 路由（idea-scoped）：
 
@@ -95,6 +96,24 @@ Agent 契约：
 
 - `idea_id` 仅存在于 route，不在 request body 重复。
 - mutating request 必须携带 `version`。
+- **PRD V2 生成**（`/agents/prd`）请求体最小化为 `{ version, baseline_id }`，后端必须组装 context pack（step2 + step3 + step4）：
+  - step2: `idea_paths` latest (`path_md/path_json/summary`)
+  - step3: `context.feasibility` + `selected_plan_id`（完整 scores/reasoning/positioning）
+  - step4: frozen baseline（`baseline_id`）+ scope detail 映射
+- `/agents/prd` 响应 envelope 保持 `{ idea_id, idea_version, data }`，`data` 必须包含：
+  - `markdown`
+  - `sections[]`
+  - `requirements[]`
+  - `backlog.items[]`（每项包含 `requirement_id`，可追溯到 requirement）
+  - `generation_meta`
+- **PRD 严格失败语义**：
+  - `LLM_MODE=mock` 可用 mock
+  - `LLM_MODE!=mock` 禁止静默 fallback 到 mock
+  - provider/schema 失败返回 `502` + `detail.code = PRD_GENERATION_FAILED`
+- **PRD 反馈（latest-only）**：`POST /ideas/{idea_id}/prd/feedback`
+  - request: `{ version, baseline_id, rating_overall, rating_dimensions, comment? }`
+  - 仅保留 `context.prd_feedback_latest` 一条最新记录
+  - 成功写入必须做 CAS 并 bump `idea.version`
 - **普通 agent SSE**（opportunity/feasibility stream）response 使用固定 envelope：`{ idea_id, idea_version, data }`，`done` 事件落库并 bump 版本，`partial` 事件不落库；`done` 落库必须做 compare-and-swap（version 一致性检查）。
 - **DAG 扩展 SSE**（`/nodes/{node_id}/expand/stream`）使用不同格式（named events），**不**携带 `idea_version`，**不** bump 版本：
 

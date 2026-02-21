@@ -51,6 +51,7 @@ pnpm build:web
   - `POST /ideas/{idea_id}/agents/feasibility`
   - `POST /ideas/{idea_id}/agents/scope`
   - `POST /ideas/{idea_id}/agents/prd`
+  - `POST /ideas/{idea_id}/prd/feedback`
 - SSE endpoints:
   - `POST /ideas/{idea_id}/agents/opportunity/stream`
   - `POST /ideas/{idea_id}/agents/feasibility/stream`
@@ -106,6 +107,47 @@ UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python mypy app
 - `POST /ideas/{idea_id}/nodes` (create root node) is **idempotent**: if nodes already exist for the idea, the endpoint returns the existing root node instead of creating a duplicate. This prevents the duplicate root node bug caused by React 18 StrictMode double-mounting `useEffect`.
 - The `IdeaDAGCanvas` init `useEffect` uses a `cancelled` flag in its cleanup to prevent async race conditions in React 18 StrictMode. Both the frontend flag and backend idempotency are required as defence-in-depth.
 - The `idea-canvas` page passes `idea.idea_seed ?? idea.title` as `ideaSeed` to `IdeaDAGCanvas`. Without this fallback, new ideas with `idea_seed = null` would pass an empty string and trigger a `422` from the backend (which enforces `min_length=1` on `CreateRootNodeRequest.content`).
+
+## PRD V2 Contract
+
+- `POST /ideas/{idea_id}/agents/prd` request body is minimal:
+  - `version: number`
+  - `baseline_id: string`
+- Backend assembles `context_pack` from canonical sources:
+  - Step2: latest confirmed path (`idea_paths.path_md/path_json/summary`)
+  - Step3: selected feasibility plan and alternatives
+  - Step4: frozen scope baseline + mapped scope details
+- Response envelope remains `{ idea_id, idea_version, data }`, where `data` is PRD V2:
+  - `markdown`
+  - `sections[]`
+  - `requirements[]`
+  - `backlog.items[]` (each item includes `requirement_id`)
+  - `generation_meta`
+- PRD persistence fields in `idea.context_json`:
+  - `prd` (latest parsed output)
+  - `prd_bundle` (baseline + fingerprint + output + metadata)
+
+### Strict Failure Behavior
+
+- `LLM_MODE=mock`: deterministic mock generation is allowed.
+- `LLM_MODE!=mock`: PRD generation is strict and does **not** silently fallback to mock.
+- Provider/schema failures return:
+  - HTTP `502`
+  - `detail.code = PRD_GENERATION_FAILED`
+
+## PRD Feedback Contract
+
+- `POST /ideas/{idea_id}/prd/feedback`
+- Request body:
+  - `version`
+  - `baseline_id`
+  - `rating_overall` (1-5)
+  - `rating_dimensions` (`clarity|completeness|actionability|scope_fit`, each 1-5)
+  - `comment?`
+- Write semantics:
+  - CAS/optimistic lock required (`version`)
+  - only latest record is kept in `context.prd_feedback_latest`
+  - successful write bumps `idea.version`
 
 ## DAG SSE Event Format
 
