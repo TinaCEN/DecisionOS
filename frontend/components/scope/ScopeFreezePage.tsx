@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -131,50 +131,79 @@ export function ScopeFreezePage() {
   const readonly = Boolean(draft?.readonly)
   const canEnterPrd = Boolean(draft?.baseline.id && draft?.baseline.status === 'frozen')
 
-  const syncContextFromServer = async (
-    fallbackVersion: number
-  ): Promise<{ version: number; synced: boolean }> => {
-    if (!routeIdeaId) {
-      return { version: fallbackVersion, synced: false }
-    }
-    const detail = await loadIdeaDetail(routeIdeaId)
-    if (!detail) {
-      return { version: fallbackVersion, synced: false }
-    }
-    replaceContext(detail.context)
-    setIdeaVersion(routeIdeaId, detail.version)
-    setLocalIdeaVersion(detail.version)
-    return { version: detail.version, synced: true }
-  }
+  const syncContextFromServer = useCallback(
+    async (fallbackVersion: number): Promise<{ version: number; synced: boolean }> => {
+      if (!routeIdeaId) {
+        return { version: fallbackVersion, synced: false }
+      }
+      const detail = await loadIdeaDetail(routeIdeaId)
+      if (!detail) {
+        return { version: fallbackVersion, synced: false }
+      }
+      replaceContext(detail.context)
+      setIdeaVersion(routeIdeaId, detail.version)
+      setLocalIdeaVersion(detail.version)
+      return { version: detail.version, synced: true }
+    },
+    [loadIdeaDetail, replaceContext, routeIdeaId, setIdeaVersion]
+  )
 
-  const hydrateDraftIfEmpty = async (
-    ideaId: string,
-    currentDraft: ScopeDraftResponse,
-    startVersion: number
-  ): Promise<{ draft: ScopeDraftResponse; version: number; versionChanged: boolean }> => {
-    if (currentDraft.readonly || currentDraft.items.length > 0) {
-      return { draft: currentDraft, version: startVersion, versionChanged: false }
-    }
+  const hydrateDraftIfEmpty = useCallback(
+    async (
+      ideaId: string,
+      currentDraft: ScopeDraftResponse,
+      startVersion: number
+    ): Promise<{ draft: ScopeDraftResponse; version: number; versionChanged: boolean }> => {
+      if (currentDraft.readonly || currentDraft.items.length > 0) {
+        return { draft: currentDraft, version: startVersion, versionChanged: false }
+      }
 
-    let workingVersion = startVersion
-    let sourceScope = scopeHasContent(context.scope) ? context.scope : undefined
-    let versionChanged = false
+      let workingVersion = startVersion
+      let sourceScope = scopeHasContent(context.scope) ? context.scope : undefined
+      let versionChanged = false
 
-    if (!sourceScope) {
-      const payload = toScopeGenerationPayload(context, workingVersion)
-      if (!payload) {
+      if (!sourceScope) {
+        const payload = toScopeGenerationPayload(context, workingVersion)
+        if (!payload) {
+          return { draft: currentDraft, version: workingVersion, versionChanged }
+        }
+
+        try {
+          const envelope = await postIdeaScopedAgent<ScopeInput & { version: number }, ScopeOutput>(
+            ideaId,
+            'scope',
+            payload
+          )
+          sourceScope = envelope.data
+          workingVersion = envelope.idea_version
+          versionChanged = true
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 409) {
+            const synced = await syncContextFromServer(workingVersion)
+            return {
+              draft: currentDraft,
+              version: synced.version,
+              versionChanged: synced.version !== startVersion,
+            }
+          }
+          throw error
+        }
+      }
+
+      if (!sourceScope || !scopeHasContent(sourceScope)) {
         return { draft: currentDraft, version: workingVersion, versionChanged }
       }
 
       try {
-        const envelope = await postIdeaScopedAgent<ScopeInput & { version: number }, ScopeOutput>(
-          ideaId,
-          'scope',
-          payload
-        )
-        sourceScope = envelope.data
-        workingVersion = envelope.idea_version
-        versionChanged = true
+        const envelope = await patchScopeDraft(ideaId, {
+          version: workingVersion,
+          items: toDraftItemsFromScopeOutput(sourceScope),
+        })
+        return {
+          draft: envelope.data,
+          version: envelope.idea_version,
+          versionChanged: true,
+        }
       } catch (error) {
         if (error instanceof ApiError && error.status === 409) {
           const synced = await syncContextFromServer(workingVersion)
@@ -186,34 +215,9 @@ export function ScopeFreezePage() {
         }
         throw error
       }
-    }
-
-    if (!sourceScope || !scopeHasContent(sourceScope)) {
-      return { draft: currentDraft, version: workingVersion, versionChanged }
-    }
-
-    try {
-      const envelope = await patchScopeDraft(ideaId, {
-        version: workingVersion,
-        items: toDraftItemsFromScopeOutput(sourceScope),
-      })
-      return {
-        draft: envelope.data,
-        version: envelope.idea_version,
-        versionChanged: true,
-      }
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        const synced = await syncContextFromServer(workingVersion)
-        return {
-          draft: currentDraft,
-          version: synced.version,
-          versionChanged: synced.version !== startVersion,
-        }
-      }
-      throw error
-    }
-  }
+    },
+    [context, syncContextFromServer]
+  )
 
   useEffect(() => {
     if (!activeIdea) {
@@ -319,7 +323,7 @@ export function ScopeFreezePage() {
     return () => {
       cancelled = true
     }
-  }, [activeIdea, canOpen, loadedIdeaId, routeIdeaId, setIdeaVersion])
+  }, [activeIdea, canOpen, hydrateDraftIfEmpty, loadedIdeaId, routeIdeaId, setIdeaVersion])
 
   const applyDraftItems = async (nextItems: ScopeBaselineItem[]) => {
     if (!routeIdeaId || !draft || draft.readonly) {

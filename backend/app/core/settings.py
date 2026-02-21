@@ -17,6 +17,13 @@ class Settings:
     secret_key: str
 
 
+def _parse_cors_origins(raw: str | None) -> tuple[str, ...]:
+    if raw is None or not raw.strip():
+        return ("http://localhost:3000", "http://127.0.0.1:3000")
+    origins = tuple(origin.strip() for origin in raw.split(",") if origin.strip())
+    return origins or ("http://localhost:3000", "http://127.0.0.1:3000")
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     raw_mode = os.getenv("LLM_MODE", "auto").strip().lower()
@@ -30,7 +37,7 @@ def get_settings() -> Settings:
     return Settings(
         app_name="DecisionOS API",
         llm_mode=llm_mode,
-        cors_origins=("http://localhost:3000", "http://127.0.0.1:3000"),
+        cors_origins=_parse_cors_origins(os.getenv("DECISIONOS_CORS_ORIGINS")),
         db_path=os.getenv("DECISIONOS_DB_PATH", "./decisionos.db").strip() or "./decisionos.db",
         secret_key=(
             os.getenv("DECISIONOS_SECRET_KEY", "").strip()

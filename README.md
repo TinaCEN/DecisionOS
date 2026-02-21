@@ -79,6 +79,7 @@ Optional env vars:
 ```bash
 export LLM_MODE=auto  # default; set mock to force deterministic mock-only mode
 export DECISIONOS_SECRET_KEY="replace-with-strong-secret"
+export DECISIONOS_CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:3000"
 ```
 
 AI provider behavior:
@@ -147,7 +148,37 @@ UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python mypy app
 - Write semantics:
   - CAS/optimistic lock required (`version`)
   - only latest record is kept in `context.prd_feedback_latest`
-  - successful write bumps `idea.version`
+- successful write bumps `idea.version`
+
+## Docker Compose / Coolify
+
+This repo now includes:
+
+- `docker-compose.yml`
+- `frontend/Dockerfile`
+- `backend/Dockerfile`
+
+Local run:
+
+```bash
+docker compose up --build -d
+```
+
+Coolify quick deploy:
+
+1. Create a new Docker Compose service in Coolify and point it to this repo.
+2. Use `docker-compose.yml` at repo root.
+3. Configure env vars:
+   - `NEXT_PUBLIC_API_BASE_URL=https://<your-api-domain>`
+   - `DECISIONOS_CORS_ORIGINS=https://<your-web-domain>`
+   - `DECISIONOS_SECRET_KEY=<strong-random-secret>`
+   - `LLM_MODE=mock` (or `auto` in production)
+4. Expose `web` and `api` with their own domains in Coolify.
+
+Notes:
+
+- SQLite is persisted via named volume `decisionos_data` mounted at `/data`.
+- `DECISIONOS_DB_PATH` defaults to `/data/decisionos.db` in compose.
 
 ## DAG SSE Event Format
 
