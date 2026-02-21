@@ -137,32 +137,97 @@ docker compose up --build -d
 
 > **注意**：SQLite 通过命名卷 `decisionos_data` 挂载到 `/data` 进行持久化。
 
-### Coolify 部署
+### GitHub Actions + Coolify CI/CD（生产环境推荐）
 
-`web` 和 `api` 以单个 Docker Compose 栈运行。只需对外暴露 `web` 服务（端口 3000）—— `api` 容器由代理通过内部网络访问，无需公开域名。
+推荐的生产部署方式：GitHub Actions 负责测试和构建镜像，Coolify 只负责拉取镜像并运行——服务器零构建压力。
 
-必需的环境变量：
+**流程：**
 
-| 变量名                           | 值                                    |
-| -------------------------------- | ------------------------------------- |
-| `DECISIONOS_SEED_ADMIN_USERNAME` | 管理员用户名                          |
-| `DECISIONOS_SEED_ADMIN_PASSWORD` | 强密码                                |
-| `DECISIONOS_SECRET_KEY`          | 随机密钥（如 `openssl rand -hex 32`） |
-| `LLM_MODE`                       | `auto`（或 `modelscope`）             |
+```
+git push → GitHub Actions
+               ├── 运行后端测试（pytest）
+               ├── 运行前端类型检查 + 构建
+               └── 测试通过后构建镜像并推送到 ghcr.io
+                       ↓
+                   Coolify 拉取 ghcr.io/you/decisionos-api:latest
+                           和  ghcr.io/you/decisionos-web:latest
+                           并重启容器
+```
 
-可选但推荐：
+**第一步 — 将 GHCR 包设为公开**（一次性操作）
 
-| 变量名                    | 值                                               |
-| ------------------------- | ------------------------------------------------ |
-| `DECISIONOS_CORS_ORIGINS` | `http://localhost:3000`（仅暴露 web 时默认即可） |
-| `API_INTERNAL_URL`        | `http://api:8000`（默认值，通常无需修改）        |
+首次 push 触发 workflow 后，进入 GitHub 个人主页 → Packages → `decisionos-api` 和 `decisionos-web` → 将可见性改为 **Public**，这样 Coolify 无需凭据即可拉取。
 
-操作步骤：
+**第二步 — 在 Coolify 中使用预构建镜像**
 
-1. 在 Coolify 中创建 **Docker Compose** 服务，指向本仓库
+在 Coolify 中创建新的 **Docker Compose** 服务，直接粘贴以下内容（替换 `<your-github-username>`）：
+
+```yaml
+services:
+  api:
+    image: ghcr.io/<your-github-username>/decisionos-api:latest
+    environment:
+      LLM_MODE: ${LLM_MODE:-auto}
+      DECISIONOS_DB_PATH: ${DECISIONOS_DB_PATH:-/data/decisionos.db}
+      DECISIONOS_SECRET_KEY: ${DECISIONOS_SECRET_KEY}
+      DECISIONOS_CORS_ORIGINS: ${DECISIONOS_CORS_ORIGINS:-http://localhost:3000}
+      DECISIONOS_SEED_ADMIN_USERNAME: ${DECISIONOS_SEED_ADMIN_USERNAME}
+      DECISIONOS_SEED_ADMIN_PASSWORD: ${DECISIONOS_SEED_ADMIN_PASSWORD}
+    volumes:
+      - decisionos_data:/data
+    expose:
+      - '8000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/<your-github-username>/decisionos-web:latest
+    environment:
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+
+volumes:
+  decisionos_data:
+```
+
+**第三步 — 在 Coolify 中配置环境变量**
+
+| 变量名                           | 值                                 |
+| -------------------------------- | ---------------------------------- |
+| `DECISIONOS_SEED_ADMIN_USERNAME` | 管理员用户名                       |
+| `DECISIONOS_SEED_ADMIN_PASSWORD` | 强密码                             |
+| `DECISIONOS_SECRET_KEY`          | 随机密钥（`openssl rand -hex 32`） |
+| `LLM_MODE`                       | `auto`（或 `modelscope`）          |
+
+**第四步** — 仅将 `web` 服务的 3000 端口绑定到你的域名，`api` 容器无需公开域名。
+
+> **端口说明**：`api` 使用 `expose` 而非 `ports`，仅在 Docker 内部网络可访问——避免在共享 Coolify 服务器上因 8000 端口已被占用而冲突。
+
+---
+
+### Coolify（直接从源码构建，配置更简单）
+
+如果不想用 GitHub Actions，让 Coolify 直接构建镜像：
+
+1. 在 Coolify 中创建 **Docker Compose** 服务，指向本仓库（`docker-compose.yml`）
 2. 填写上述环境变量
 3. 仅将 `web` 服务的 3000 端口绑定到你的域名
-4. `api` 服务的 8000 端口**不需要**公开域名，通过 `http://api:8000` 内部访问
 
 ## 配置说明
 

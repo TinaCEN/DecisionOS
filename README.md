@@ -137,32 +137,97 @@ Access:
 
 > **Note**: SQLite is persisted via named volume `decisionos_data` mounted at `/data`.
 
-### Coolify
+### CI/CD with GitHub Actions + Coolify (Recommended for production)
 
-Both `web` and `api` run as a single Docker Compose stack. Only expose the `web` service (port 3000) publicly — the `api` container is accessed internally by the proxy.
+The recommended production setup uses GitHub Actions to test and build images, then Coolify to pull and run them — no build workload on your server.
 
-Required environment variables:
+**How it works:**
 
-| Variable                         | Value                                       |
-| -------------------------------- | ------------------------------------------- |
-| `DECISIONOS_SEED_ADMIN_USERNAME` | Your admin username                         |
-| `DECISIONOS_SEED_ADMIN_PASSWORD` | Strong admin password                       |
-| `DECISIONOS_SECRET_KEY`          | Random secret (e.g. `openssl rand -hex 32`) |
-| `LLM_MODE`                       | `auto` (or `modelscope`)                    |
+```
+git push → GitHub Actions
+               ├── run backend tests (pytest)
+               ├── run frontend type-check + build
+               └── on success: build & push images to ghcr.io
+                       ↓
+                   Coolify pulls ghcr.io/you/decisionos-api:latest
+                             and ghcr.io/you/decisionos-web:latest
+                             and restarts containers
+```
 
-Optional but recommended:
+**Step 1 — Make GHCR packages public** (one-time)
 
-| Variable                  | Value                                                              |
-| ------------------------- | ------------------------------------------------------------------ |
-| `DECISIONOS_CORS_ORIGINS` | `http://localhost:3000` (default is fine if only `web` is exposed) |
-| `API_INTERNAL_URL`        | `http://api:8000` (default, usually no need to change)             |
+After the first push triggers the workflow, go to your GitHub profile → Packages → `decisionos-api` and `decisionos-web` → change visibility to **Public**. This lets Coolify pull without credentials.
 
-Steps:
+**Step 2 — Configure Coolify to use pre-built images**
 
-1. In Coolify, create a **Docker Compose** service pointing to this repo
-2. Set the environment variables above
+In Coolify, create a new **Docker Compose** service and paste the following compose content directly (replacing `<your-github-username>`):
+
+```yaml
+services:
+  api:
+    image: ghcr.io/<your-github-username>/decisionos-api:latest
+    environment:
+      LLM_MODE: ${LLM_MODE:-auto}
+      DECISIONOS_DB_PATH: ${DECISIONOS_DB_PATH:-/data/decisionos.db}
+      DECISIONOS_SECRET_KEY: ${DECISIONOS_SECRET_KEY}
+      DECISIONOS_CORS_ORIGINS: ${DECISIONOS_CORS_ORIGINS:-http://localhost:3000}
+      DECISIONOS_SEED_ADMIN_USERNAME: ${DECISIONOS_SEED_ADMIN_USERNAME}
+      DECISIONOS_SEED_ADMIN_PASSWORD: ${DECISIONOS_SEED_ADMIN_PASSWORD}
+    volumes:
+      - decisionos_data:/data
+    expose:
+      - '8000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/<your-github-username>/decisionos-web:latest
+    environment:
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+
+volumes:
+  decisionos_data:
+```
+
+**Step 3 — Set environment variables in Coolify**
+
+| Variable                         | Value                                  |
+| -------------------------------- | -------------------------------------- |
+| `DECISIONOS_SEED_ADMIN_USERNAME` | Your admin username                    |
+| `DECISIONOS_SEED_ADMIN_PASSWORD` | Strong admin password                  |
+| `DECISIONOS_SECRET_KEY`          | Random secret (`openssl rand -hex 32`) |
+| `LLM_MODE`                       | `auto` (or `modelscope`)               |
+
+**Step 4** — Expose only the `web` service (port 3000) with your domain. The `api` container does not need a public domain.
+
+> **Port note**: `api` uses `expose` (not `ports`) so it is only reachable inside the Docker network — this prevents host port conflicts on shared Coolify servers.
+
+---
+
+### Coolify (build from source, simpler setup)
+
+If you prefer Coolify to build images itself without GitHub Actions:
+
+1. Create a **Docker Compose** service in Coolify pointing to this repo (`docker-compose.yml`)
+2. Set the same environment variables as above
 3. Expose only the `web` service on port 3000 with your domain
-4. The `api` service on port 8000 does **not** need a public domain — it is accessed internally via `http://api:8000`
 
 ## Configuration
 
