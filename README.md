@@ -120,11 +120,10 @@ Visit `http://localhost:3000` and login with your configured admin credentials.
 ### Docker Compose (Recommended)
 
 ```bash
-# Set required environment variables
 export DECISIONOS_SEED_ADMIN_USERNAME=admin
 export DECISIONOS_SEED_ADMIN_PASSWORD=your-secure-password
+export LLM_MODE=auto   # or mock for testing
 
-# Start services
 docker compose up --build -d
 ```
 
@@ -134,19 +133,36 @@ Access:
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
 
-### Coolify
-
-1. Create a new Docker Compose service pointing to this repo
-2. Configure environment variables:
-   - `NEXT_PUBLIC_API_BASE_URL=https://<your-api-domain>`
-   - `DECISIONOS_CORS_ORIGINS=https://<your-web-domain>`
-   - `DECISIONOS_SECRET_KEY=<strong-random-secret>`
-   - `DECISIONOS_SEED_ADMIN_USERNAME=<admin-username>` (required)
-   - `DECISIONOS_SEED_ADMIN_PASSWORD=<strong-password>` (required)
-   - `LLM_MODE=mock` (or `auto` for production)
-3. Expose `web` (port 3000) and `api` (port 8000) with their own domains
+**How the proxy works in Docker**: the `web` container builds with `API_INTERNAL_URL=http://api:8000`. All browser requests go to `http://localhost:3000/api-proxy/...`, which Next.js forwards server-side to the `api` container over Docker's internal network — no CORS issues, no backend port exposed to the browser.
 
 > **Note**: SQLite is persisted via named volume `decisionos_data` mounted at `/data`.
+
+### Coolify
+
+Both `web` and `api` run as a single Docker Compose stack. Only expose the `web` service (port 3000) publicly — the `api` container is accessed internally by the proxy.
+
+Required environment variables:
+
+| Variable                         | Value                                       |
+| -------------------------------- | ------------------------------------------- |
+| `DECISIONOS_SEED_ADMIN_USERNAME` | Your admin username                         |
+| `DECISIONOS_SEED_ADMIN_PASSWORD` | Strong admin password                       |
+| `DECISIONOS_SECRET_KEY`          | Random secret (e.g. `openssl rand -hex 32`) |
+| `LLM_MODE`                       | `auto` (or `modelscope`)                    |
+
+Optional but recommended:
+
+| Variable                  | Value                                                              |
+| ------------------------- | ------------------------------------------------------------------ |
+| `DECISIONOS_CORS_ORIGINS` | `http://localhost:3000` (default is fine if only `web` is exposed) |
+| `API_INTERNAL_URL`        | `http://api:8000` (default, usually no need to change)             |
+
+Steps:
+
+1. In Coolify, create a **Docker Compose** service pointing to this repo
+2. Set the environment variables above
+3. Expose only the `web` service on port 3000 with your domain
+4. The `api` service on port 8000 does **not** need a public domain — it is accessed internally via `http://api:8000`
 
 ## Configuration
 
@@ -159,14 +175,15 @@ Access:
 
 ### Optional Environment Variables
 
-| Variable                              | Default                           | Description                              |
-| ------------------------------------- | --------------------------------- | ---------------------------------------- |
-| `DECISIONOS_DB_PATH`                  | `./decisionos.db`                 | SQLite database path                     |
-| `DECISIONOS_SECRET_KEY`               | `decisionos-dev-secret-change-me` | Encryption key for secrets               |
-| `DECISIONOS_CORS_ORIGINS`             | `http://localhost:3000`           | Comma-separated allowed origins          |
-| `DECISIONOS_AUTH_DISABLED`            | `false`                           | Disable auth (dev only)                  |
-| `DECISIONOS_AUTH_SESSION_TTL_SECONDS` | `43200`                           | Session timeout (12 hours)               |
-| `LLM_MODE`                            | `auto`                            | AI mode: `mock`, `auto`, or `modelscope` |
+| Variable                              | Default                           | Description                                                             |
+| ------------------------------------- | --------------------------------- | ----------------------------------------------------------------------- |
+| `DECISIONOS_DB_PATH`                  | `./decisionos.db`                 | SQLite database path                                                    |
+| `DECISIONOS_SECRET_KEY`               | `decisionos-dev-secret-change-me` | Encryption key for secrets                                              |
+| `DECISIONOS_CORS_ORIGINS`             | `http://localhost:3000`           | Comma-separated allowed origins                                         |
+| `DECISIONOS_AUTH_DISABLED`            | `false`                           | Disable auth (dev only)                                                 |
+| `DECISIONOS_AUTH_SESSION_TTL_SECONDS` | `43200`                           | Session timeout (12 hours)                                              |
+| `LLM_MODE`                            | `auto`                            | AI mode: `mock`, `auto`, or `modelscope`                                |
+| `API_INTERNAL_URL`                    | `http://127.0.0.1:8000`           | Backend URL used by Next.js server (set to `http://api:8000` in Docker) |
 
 ### Seed Users
 
