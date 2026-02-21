@@ -7,7 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.common import DirectionId, PathId
 from app.schemas.feasibility import FeasibilityInput, FeasibilityOutput
 from app.schemas.idea import OpportunityInput, OpportunityOutput
-from app.schemas.prd import PRDInput, PRDOutput
+from app.schemas.prd import (
+    PRDOutput,
+    PrdBundle,
+    PrdFeedbackDimensions,
+    PrdFeedbackLatest,
+)
 from app.schemas.scope import ScopeInput, ScopeOutput
 
 IdeaStage = Literal["idea_canvas", "feasibility", "scope_freeze", "prd"]
@@ -31,6 +36,8 @@ class DecisionContext(BaseModel):
     current_scope_baseline_id: str | None = Field(default=None, min_length=1)
     current_scope_baseline_version: int | None = Field(default=None, ge=1)
     prd: PRDOutput | None = None
+    prd_bundle: PrdBundle | None = None
+    prd_feedback_latest: PrdFeedbackLatest | None = None
     confirmed_dag_path_id: str | None = None
     confirmed_dag_node_id: str | None = Field(default=None, min_length=1)
     confirmed_dag_node_content: str | None = Field(default=None, min_length=1)
@@ -100,8 +107,17 @@ class ScopeIdeaRequest(ScopeInput):
     version: int = Field(ge=1)
 
 
-class PRDIdeaRequest(PRDInput):
+class PRDIdeaRequest(BaseModel):
     version: int = Field(ge=1)
+    baseline_id: str = Field(min_length=1)
+
+
+class PRDFeedbackRequest(BaseModel):
+    version: int = Field(ge=1)
+    baseline_id: str = Field(min_length=1)
+    rating_overall: int = Field(ge=1, le=5)
+    rating_dimensions: PrdFeedbackDimensions
+    comment: str | None = Field(default=None, max_length=2000)
 
 
 class OpportunityAgentResponse(BaseModel):
@@ -126,3 +142,9 @@ class PRDAgentResponse(BaseModel):
     idea_id: str
     idea_version: int
     data: PRDOutput
+
+
+class PRDFeedbackResponse(BaseModel):
+    idea_id: str
+    idea_version: int
+    data: PrdFeedbackLatest

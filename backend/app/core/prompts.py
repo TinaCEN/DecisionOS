@@ -26,7 +26,10 @@ SCOPE_PROMPT = (
     "Given confirmed DAG context, selected plan and feasibility output, classify features into in_scope and out_scope."
 )
 
-PRD_PROMPT = "Generate a concise MVP PRD markdown from approved scope."
+PRD_PROMPT = (
+    "Generate a delivery-ready PRD and executable backlog grounded in confirmed path, "
+    "selected feasibility plan, and frozen scope baseline."
+)
 
 
 def build_feasibility_prompt(
@@ -73,24 +76,24 @@ def build_scope_prompt(
 
 def build_prd_prompt(
     *,
-    idea_seed: str,
-    confirmed_path_id: str,
-    confirmed_node_id: str,
-    confirmed_node_content: str,
-    confirmed_path_summary: str | None,
-    selected_plan_id: str,
-    scope_payload: dict[str, object],
+    context_pack: dict[str, object],
 ) -> str:
     return (
         f"{PRD_PROMPT}\n"
-        f"idea_seed={idea_seed!r}\n"
-        f"confirmed_path_id={confirmed_path_id!r}\n"
-        f"confirmed_node_id={confirmed_node_id!r}\n"
-        f"confirmed_node_content={confirmed_node_content!r}\n"
-        f"confirmed_path_summary={confirmed_path_summary!r}\n"
-        f"selected_plan_id={selected_plan_id!r}\n"
-        f"scope={json.dumps(scope_payload, ensure_ascii=False)}\n"
-        "Return JSON with keys 'markdown' and 'sections'."
+        "You are a senior PM and delivery lead.\n"
+        "Output must be strict JSON with no markdown fences or extra prose.\n"
+        "The PRD must be detailed, concrete, and implementation-ready.\n"
+        f"context_pack={json.dumps(context_pack, ensure_ascii=False)}\n"
+        "Hard constraints:\n"
+        "- requirements count must be between 6 and 12.\n"
+        "- backlog.items count must be between 8 and 15.\n"
+        "- each backlog item must include requirement_id mapping to requirements.id.\n"
+        "- backlog.item.priority must be one of P0/P1/P2.\n"
+        "- backlog.item.type must be one of epic/story/task.\n"
+        "- backlog.item.acceptance_criteria must contain at least 2 items.\n"
+        "- backlog.item.source_refs must contain one or more of step2/step3/step4.\n"
+        "- items clearly marked in out_scope must not appear as P0 backlog.\n"
+        "Return JSON with keys: markdown, sections, requirements, backlog, generation_meta."
     )
 
 

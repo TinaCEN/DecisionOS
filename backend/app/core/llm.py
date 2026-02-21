@@ -11,11 +11,15 @@ from app.core import prompts
 from app.core.settings import get_settings
 from app.schemas.feasibility import FeasibilityInput, FeasibilityOutput
 from app.schemas.idea import OpportunityInput, OpportunityOutput
-from app.schemas.prd import PRDInput, PRDOutput
+from app.schemas.prd import PRDOutput, PrdContextPack
 from app.schemas.scope import ScopeInput, ScopeOutput
 
 SchemaT = TypeVar("SchemaT")
 logger = logging.getLogger(__name__)
+
+
+class PRDGenerationError(RuntimeError):
+    pass
 
 
 def generate_json(
@@ -79,23 +83,21 @@ def generate_scope(payload: ScopeInput) -> ScopeOutput:
     )
 
 
-def generate_prd(payload: PRDInput) -> PRDOutput:
-    return generate_json(
-        mock_factory=lambda: mock_data.generate_prd_output(payload),
-        model_factory=lambda: ai_gateway.generate_structured(
+def generate_prd_strict(context_pack: PrdContextPack) -> PRDOutput:
+    settings = get_settings()
+    if settings.llm_mode == "mock":
+        return mock_data.generate_prd_output(context_pack)
+
+    try:
+        return ai_gateway.generate_structured(
             task="prd",
             user_prompt=prompts.build_prd_prompt(
-                idea_seed=payload.idea_seed,
-                confirmed_path_id=payload.confirmed_path_id,
-                confirmed_node_id=payload.confirmed_node_id,
-                confirmed_node_content=payload.confirmed_node_content,
-                confirmed_path_summary=payload.confirmed_path_summary,
-                selected_plan_id=payload.selected_plan_id,
-                scope_payload=payload.scope.model_dump(mode="python"),
+                context_pack=context_pack.model_dump(mode="python"),
             ),
             schema_model=PRDOutput,
-        ),
-    )
+        )
+    except Exception as exc:
+        raise PRDGenerationError("Failed to generate PRD output from provider") from exc
 
 
 def _parse_nodes_from_text(text: str) -> list[dict[str, str]]:

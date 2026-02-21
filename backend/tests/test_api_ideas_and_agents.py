@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from dataclasses import dataclass
+from unittest.mock import patch
 
 
 class IdeasAndAgentsApiTestCase(unittest.TestCase):
@@ -13,6 +14,7 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "decisionos-api-test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
+        os.environ["LLM_MODE"] = "mock"
 
         from app.core.settings import get_settings
         from app.main import create_app
@@ -102,27 +104,106 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         idea_id: str,
         *,
         version: int,
-        confirmed_path_id: str,
-        confirmed_node_id: str,
-        confirmed_node_content: str,
-        confirmed_path_summary: str | None,
-        selected_plan_id: str,
-        scope: dict[str, object],
+        baseline_id: str,
     ) -> tuple[int, dict[str, object] | None]:
         return self.client.request_json(
             "POST",
             f"/ideas/{idea_id}/agents/prd",
             {
-                "idea_seed": "seed",
-                "confirmed_path_id": confirmed_path_id,
-                "confirmed_node_id": confirmed_node_id,
-                "confirmed_node_content": confirmed_node_content,
-                "confirmed_path_summary": confirmed_path_summary,
-                "selected_plan_id": selected_plan_id,
-                "scope": scope,
                 "version": version,
+                "baseline_id": baseline_id,
             },
         )
+
+    def _post_prd_feedback(
+        self,
+        idea_id: str,
+        *,
+        version: int,
+        baseline_id: str,
+        rating_overall: int = 4,
+        comment: str | None = None,
+    ) -> tuple[int, dict[str, object] | None]:
+        return self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/prd/feedback",
+            {
+                "version": version,
+                "baseline_id": baseline_id,
+                "rating_overall": rating_overall,
+                "rating_dimensions": {
+                    "clarity": 4,
+                    "completeness": 4,
+                    "actionability": 4,
+                    "scope_fit": 4,
+                },
+                "comment": comment,
+            },
+        )
+
+    def _create_root_and_confirm_path(self, idea_id: str, *, version: int) -> tuple[str, int]:
+        root_status, root = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/nodes",
+            {"content": "Root node"},
+        )
+        self.assertEqual(root_status, 201)
+        assert root is not None
+
+        confirm_status, confirmed = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/paths",
+            {"node_chain": [root["id"]]},
+        )
+        self.assertEqual(confirm_status, 201)
+        assert confirmed is not None
+
+        detail_status, detail = self.client.request_json("GET", f"/ideas/{idea_id}")
+        self.assertEqual(detail_status, 200)
+        assert detail is not None
+        return confirmed["id"], detail["version"]
+
+    def _prepare_prd_baseline(self, idea_id: str, *, version: int) -> tuple[str, int, str]:
+        _, version_after_path = self._create_root_and_confirm_path(idea_id, version=version)
+        feasibility = self._generate_feasibility(
+            idea_id,
+            version=version_after_path,
+            confirmed_path_id="dag-path-v2",
+            confirmed_node_id="dag-node-v2",
+            confirmed_node_content="Validated DAG node content",
+            confirmed_path_summary="DAG path summary",
+        )
+        selected_plan_id = feasibility["data"]["plans"][0]["id"]
+
+        scope_status, scope = self._generate_scope(
+            idea_id,
+            version=feasibility["idea_version"],
+            confirmed_path_id="dag-path-v2",
+            confirmed_node_id="dag-node-v2",
+            confirmed_node_content="Validated DAG node content",
+            confirmed_path_summary="DAG path summary",
+            selected_plan_id=selected_plan_id,
+            feasibility=feasibility["data"],
+        )
+        self.assertEqual(scope_status, 200)
+        assert scope is not None
+
+        bootstrap_status, bootstrap = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/scope/draft/bootstrap",
+            {"version": scope["idea_version"]},
+        )
+        self.assertEqual(bootstrap_status, 200)
+        assert bootstrap is not None
+
+        freeze_status, frozen = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/scope/freeze",
+            {"version": bootstrap["idea_version"]},
+        )
+        self.assertEqual(freeze_status, 200)
+        assert frozen is not None
+        return frozen["data"]["id"], frozen["idea_version"], selected_plan_id
 
     def test_legacy_agents_route_reports_gone(self) -> None:
         status_code, payload = self.client.request_json(
@@ -368,53 +449,15 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
 
     def test_scope_and_prd_version_guards(self) -> None:
         idea_id, initial_version = self._create_idea("Scope PRD Guard Idea")
-        opportunity = self._generate_opportunity(idea_id, initial_version)
-        feasibility = self._generate_feasibility(
+        baseline_id, ready_version, selected_plan_id = self._prepare_prd_baseline(
             idea_id,
-            version=opportunity["idea_version"],
-            confirmed_path_id="dag-path-guard",
-            confirmed_node_id="dag-node-guard",
-            confirmed_node_content="Guard DAG node content",
-            confirmed_path_summary="Guard DAG path summary",
+            version=initial_version,
         )
-        selected_plan_id = feasibility["data"]["plans"][0]["id"]
-
-        stale_scope_status, stale_scope = self._generate_scope(
-            idea_id,
-            version=opportunity["idea_version"],
-            confirmed_path_id="dag-path-guard",
-            confirmed_node_id="dag-node-guard",
-            confirmed_node_content="Guard DAG node content",
-            confirmed_path_summary="Guard DAG path summary",
-            selected_plan_id=selected_plan_id,
-            feasibility=feasibility["data"],
-        )
-        self.assertEqual(stale_scope_status, 409)
-        assert stale_scope is not None
-        self.assertEqual(stale_scope["detail"]["code"], "IDEA_VERSION_CONFLICT")
-
-        scope_status, scope = self._generate_scope(
-            idea_id,
-            version=feasibility["idea_version"],
-            confirmed_path_id="dag-path-guard",
-            confirmed_node_id="dag-node-guard",
-            confirmed_node_content="Guard DAG node content",
-            confirmed_path_summary="Guard DAG path summary",
-            selected_plan_id=selected_plan_id,
-            feasibility=feasibility["data"],
-        )
-        self.assertEqual(scope_status, 200)
-        assert scope is not None
 
         stale_prd_status, stale_prd = self._generate_prd(
             idea_id,
-            version=feasibility["idea_version"],
-            confirmed_path_id="dag-path-guard",
-            confirmed_node_id="dag-node-guard",
-            confirmed_node_content="Guard DAG node content",
-            confirmed_path_summary="Guard DAG path summary",
-            selected_plan_id=selected_plan_id,
-            scope=scope["data"],
+            version=ready_version - 1,
+            baseline_id=baseline_id,
         )
         self.assertEqual(stale_prd_status, 409)
         assert stale_prd is not None
@@ -422,17 +465,19 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
 
         prd_status, prd = self._generate_prd(
             idea_id,
-            version=scope["idea_version"],
-            confirmed_path_id="dag-path-guard",
-            confirmed_node_id="dag-node-guard",
-            confirmed_node_content="Guard DAG node content",
-            confirmed_path_summary="Guard DAG path summary",
-            selected_plan_id=selected_plan_id,
-            scope=scope["data"],
+            version=ready_version,
+            baseline_id=baseline_id,
         )
         self.assertEqual(prd_status, 200)
         assert prd is not None
-        self.assertEqual(prd["idea_version"], scope["idea_version"] + 1)
+        self.assertEqual(prd["idea_version"], ready_version + 1)
+        requirements = prd["data"]["requirements"]
+        backlog_items = prd["data"]["backlog"]["items"]
+        requirement_ids = {item["id"] for item in requirements}
+        self.assertGreaterEqual(len(requirements), 6)
+        self.assertGreaterEqual(len(backlog_items), 8)
+        self.assertTrue(requirement_ids)
+        self.assertTrue(all(item["requirement_id"] in requirement_ids for item in backlog_items))
 
         final_status, final_detail = self.client.request_json("GET", f"/ideas/{idea_id}")
         self.assertEqual(final_status, 200)
@@ -440,11 +485,214 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         self.assertEqual(final_detail["version"], prd["idea_version"])
         self.assertIsNotNone(final_detail["context"]["scope"])
         self.assertIsNotNone(final_detail["context"]["prd"])
-        self.assertEqual(final_detail["context"]["confirmed_dag_path_id"], "dag-path-guard")
-        self.assertEqual(final_detail["context"]["confirmed_dag_node_id"], "dag-node-guard")
-        self.assertEqual(final_detail["context"]["confirmed_dag_node_content"], "Guard DAG node content")
+        self.assertEqual(final_detail["context"]["selected_plan_id"], selected_plan_id)
+        self.assertEqual(final_detail["context"]["prd_bundle"]["baseline_id"], baseline_id)
+        self.assertEqual(final_detail["context"]["prd_bundle"]["output"]["backlog"]["items"][0]["id"], "BL-1")
         self.assertIsNone(final_detail["context"]["selected_direction_id"])
         self.assertIsNone(final_detail["context"]["path_id"])
+
+    def test_prd_context_pack_requires_selected_plan(self) -> None:
+        idea_id, version = self._create_idea("PRD Selected Plan Required")
+        _, version_after_path = self._create_root_and_confirm_path(idea_id, version=version)
+
+        bootstrap_status, bootstrap = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/scope/draft/bootstrap",
+            {
+                "version": version_after_path,
+                "items": [{"lane": "in", "content": "MVP lane"}],
+            },
+        )
+        self.assertEqual(bootstrap_status, 200)
+        assert bootstrap is not None
+        freeze_status, frozen = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/scope/freeze",
+            {"version": bootstrap["idea_version"]},
+        )
+        self.assertEqual(freeze_status, 200)
+        assert frozen is not None
+
+        prd_status, prd = self._generate_prd(
+            idea_id,
+            version=frozen["idea_version"],
+            baseline_id=frozen["data"]["id"],
+        )
+        self.assertEqual(prd_status, 409)
+        assert prd is not None
+        self.assertEqual(prd["detail"]["code"], "PRD_SELECTED_PLAN_REQUIRED")
+
+    def test_prd_context_pack_requires_confirmed_path(self) -> None:
+        idea_id, version = self._create_idea("PRD Confirmed Path Required")
+        detail_status, detail = self.client.request_json("GET", f"/ideas/{idea_id}")
+        self.assertEqual(detail_status, 200)
+        assert detail is not None
+        context_payload = dict(detail["context"])
+        context_payload["selected_plan_id"] = "plan1"
+        context_payload["feasibility"] = {
+            "plans": [
+                {
+                    "id": "plan1",
+                    "name": "Plan 1",
+                    "summary": "summary",
+                    "score_overall": 8.1,
+                    "scores": {
+                        "technical_feasibility": 8.0,
+                        "market_viability": 8.0,
+                        "execution_risk": 8.0,
+                    },
+                    "reasoning": {
+                        "technical_feasibility": "tech",
+                        "market_viability": "market",
+                        "execution_risk": "risk",
+                    },
+                    "recommended_positioning": "position",
+                },
+                {
+                    "id": "plan2",
+                    "name": "Plan 2",
+                    "summary": "summary 2",
+                    "score_overall": 7.5,
+                    "scores": {
+                        "technical_feasibility": 7.0,
+                        "market_viability": 8.0,
+                        "execution_risk": 7.5,
+                    },
+                    "reasoning": {
+                        "technical_feasibility": "tech",
+                        "market_viability": "market",
+                        "execution_risk": "risk",
+                    },
+                    "recommended_positioning": "position",
+                },
+                {
+                    "id": "plan3",
+                    "name": "Plan 3",
+                    "summary": "summary 3",
+                    "score_overall": 7.2,
+                    "scores": {
+                        "technical_feasibility": 7.0,
+                        "market_viability": 7.2,
+                        "execution_risk": 7.4,
+                    },
+                    "reasoning": {
+                        "technical_feasibility": "tech",
+                        "market_viability": "market",
+                        "execution_risk": "risk",
+                    },
+                    "recommended_positioning": "position",
+                },
+            ]
+        }
+        patch_status, patched = self.client.request_json(
+            "PATCH",
+            f"/ideas/{idea_id}/context",
+            {"version": detail["version"], "context": context_payload},
+        )
+        self.assertEqual(patch_status, 200)
+        assert patched is not None
+
+        bootstrap_status, bootstrap = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/scope/draft/bootstrap",
+            {
+                "version": patched["version"],
+                "items": [{"lane": "in", "content": "MVP lane"}],
+            },
+        )
+        self.assertEqual(bootstrap_status, 200)
+        assert bootstrap is not None
+        freeze_status, frozen = self.client.request_json(
+            "POST",
+            f"/ideas/{idea_id}/scope/freeze",
+            {"version": bootstrap["idea_version"]},
+        )
+        self.assertEqual(freeze_status, 200)
+        assert frozen is not None
+
+        prd_status, prd = self._generate_prd(
+            idea_id,
+            version=frozen["idea_version"],
+            baseline_id=frozen["data"]["id"],
+        )
+        self.assertEqual(prd_status, 409)
+        assert prd is not None
+        self.assertEqual(prd["detail"]["code"], "PRD_CONFIRMED_PATH_REQUIRED")
+
+    def test_prd_generation_failed_in_non_mock_returns_502(self) -> None:
+        from app.core.settings import get_settings
+        from app.main import create_app
+
+        old_mode = os.environ.get("LLM_MODE")
+        old_client = self.client
+        os.environ["LLM_MODE"] = "auto"
+        get_settings.cache_clear()
+        self.client = _AsgiTestClient(create_app())
+        try:
+            idea_id, version = self._create_idea("PRD Strict Failure")
+            baseline_id, ready_version, _ = self._prepare_prd_baseline(idea_id, version=version)
+            with patch("app.core.ai_gateway.generate_structured", side_effect=RuntimeError("provider down")):
+                prd_status, prd = self._generate_prd(
+                    idea_id,
+                    version=ready_version,
+                    baseline_id=baseline_id,
+                )
+            self.assertEqual(prd_status, 502)
+            assert prd is not None
+            self.assertEqual(prd["detail"]["code"], "PRD_GENERATION_FAILED")
+        finally:
+            if old_mode is None:
+                os.environ.pop("LLM_MODE", None)
+            else:
+                os.environ["LLM_MODE"] = old_mode
+            get_settings.cache_clear()
+            self.client = old_client
+
+    def test_prd_feedback_latest_only_and_version_guard(self) -> None:
+        idea_id, version = self._create_idea("PRD Feedback Latest")
+        baseline_id, ready_version, _ = self._prepare_prd_baseline(idea_id, version=version)
+        prd_status, prd = self._generate_prd(idea_id, version=ready_version, baseline_id=baseline_id)
+        self.assertEqual(prd_status, 200)
+        assert prd is not None
+
+        feedback_status, feedback = self._post_prd_feedback(
+            idea_id,
+            version=prd["idea_version"],
+            baseline_id=baseline_id,
+            rating_overall=4,
+            comment="first",
+        )
+        self.assertEqual(feedback_status, 200)
+        assert feedback is not None
+
+        stale_status, stale = self._post_prd_feedback(
+            idea_id,
+            version=prd["idea_version"],
+            baseline_id=baseline_id,
+            rating_overall=2,
+            comment="stale",
+        )
+        self.assertEqual(stale_status, 409)
+        assert stale is not None
+        self.assertEqual(stale["detail"]["code"], "IDEA_VERSION_CONFLICT")
+
+        overwrite_status, overwrite = self._post_prd_feedback(
+            idea_id,
+            version=feedback["idea_version"],
+            baseline_id=baseline_id,
+            rating_overall=5,
+            comment="latest",
+        )
+        self.assertEqual(overwrite_status, 200)
+        assert overwrite is not None
+
+        detail_status, detail = self.client.request_json("GET", f"/ideas/{idea_id}")
+        self.assertEqual(detail_status, 200)
+        assert detail is not None
+        feedback_latest = detail["context"]["prd_feedback_latest"]
+        self.assertEqual(feedback_latest["rating_overall"], 5)
+        self.assertEqual(feedback_latest["comment"], "latest")
+        self.assertEqual(feedback_latest["baseline_id"], baseline_id)
 
     def test_patch_context_persists_selected_plan_id(self) -> None:
         idea_id, initial_version = self._create_idea("Persist Selected Plan")

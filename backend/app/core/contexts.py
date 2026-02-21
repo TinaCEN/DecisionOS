@@ -19,7 +19,7 @@ def create_default_context(idea_seed: str | None = None) -> DecisionContext:
 
 
 def infer_stage_from_context(context: DecisionContext) -> IdeaStage:
-    if context.prd is not None:
+    if context.prd is not None or context.prd_bundle is not None:
         return "prd"
     if context.scope is not None or bool(context.scope_frozen) or context.selected_plan_id is not None:
         return "scope_freeze"

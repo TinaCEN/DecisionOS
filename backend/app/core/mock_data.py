@@ -11,7 +11,15 @@ from app.schemas.common import (
 )
 from app.schemas.feasibility import FeasibilityInput, FeasibilityOutput, Plan
 from app.schemas.idea import OPPORTUNITY_MAX_COUNT, OPPORTUNITY_MIN_COUNT, OpportunityOutput
-from app.schemas.prd import PRDInput, PRDOutput, PRDSections
+from app.schemas.prd import (
+    PRDBacklog,
+    PRDBacklogItem,
+    PRDGenerationMeta,
+    PRDOutput,
+    PRDRequirement,
+    PRDSection,
+    PrdContextPack,
+)
 from app.schemas.scope import InScopeItem, OutScopeItem, ScopeInput, ScopeOutput
 
 _DIRECTION_TEMPLATES: list[tuple[str, str, list[str]]] = [
@@ -217,34 +225,140 @@ def generate_scope_output(payload: ScopeInput) -> ScopeOutput:
     return ScopeOutput(in_scope=in_scope, out_scope=out_scope)
 
 
-def generate_prd_output(payload: PRDInput) -> PRDOutput:
-    sections = PRDSections(
-        problem_statement=f"Builders need a reliable flow to evaluate '{payload.idea_seed}' quickly.",
-        target_user="Independent developers and small hackathon teams.",
-        core_workflow=(
-            "Idea input -> DAG exploration -> confirmed path/node -> feasibility confirmation -> scope freeze."
-        ),
-        mvp_scope="\n".join(f"- {item.title}" for item in payload.scope.in_scope),
-        success_metrics="First completed decision workflow in < 15 minutes; clear IN/OUT scope lock.",
-        risk_analysis=(
-            "Biggest risks are stream UX edge cases and weak positioning clarity from DAG node context."
-        ),
+def generate_prd_output(context_pack: PrdContextPack) -> PRDOutput:
+    seed = (
+        f"prd:{context_pack.idea_seed}:{context_pack.step2_path.path_id}:"
+        f"{context_pack.step3_feasibility.selected_plan.id}:{context_pack.step4_scope.baseline_meta.baseline_id}"
     )
+    base = _seed_int(seed)
+    in_scope_titles = [item.title for item in context_pack.step4_scope.in_scope]
 
-    markdown = "\n".join(
-        [
-            "# DecisionOS MVP PRD",
-            "",
-            f"## Problem Statement\n{sections.problem_statement}",
-            f"## Target User\n{sections.target_user}",
-            f"## Core Workflow\n{sections.core_workflow}",
-            f"## MVP Scope\n{sections.mvp_scope}",
-            f"## Success Metrics\n{sections.success_metrics}",
-            f"## Risk Analysis\n{sections.risk_analysis}",
-        ]
+    sections = [
+        PRDSection(
+            id="problem-statement",
+            title="Problem Statement",
+            content=(
+                f"Teams exploring {context_pack.idea_seed!r} need one delivery-ready plan tied to "
+                "a confirmed decision path and frozen scope."
+            ),
+        ),
+        PRDSection(
+            id="target-users",
+            title="Target Users",
+            content="Solo builders and small product squads who need deterministic planning outputs.",
+        ),
+        PRDSection(
+            id="product-goals",
+            title="Product Goals",
+            content=(
+                "Generate a requirement-driven PRD and executable backlog in one pass with explicit "
+                "traceability to decision evidence."
+            ),
+        ),
+        PRDSection(
+            id="core-workflow",
+            title="Core Workflow",
+            content=(
+                "Confirmed path -> selected feasibility plan -> frozen baseline -> PRD+Backlog generation."
+            ),
+        ),
+        PRDSection(
+            id="mvp-scope",
+            title="MVP Scope",
+            content="\n".join(f"- {title}" for title in in_scope_titles) if in_scope_titles else "- N/A",
+        ),
+        PRDSection(
+            id="risks-and-mitigations",
+            title="Risks and Mitigations",
+            content=(
+                "Main risks are scope drift and weak requirement quality. Mitigate with strict output "
+                "schema and baseline-driven generation."
+            ),
+        ),
+    ]
+
+    requirements: list[PRDRequirement] = []
+    scoped_count = max(6, min(12, len(context_pack.step4_scope.in_scope) * 2 or 6))
+    for index in range(scoped_count):
+        if context_pack.step4_scope.in_scope:
+            scope_item = context_pack.step4_scope.in_scope[
+                index % len(context_pack.step4_scope.in_scope)
+            ]
+            scope_title = scope_item.title
+        else:
+            scope_title = f"Scoped capability {index + 1}"
+        req_id = f"REQ-{index + 1}"
+        requirements.append(
+            PRDRequirement(
+                id=req_id,
+                title=f"{scope_title} capability {index + 1}",
+                description=(
+                    f"System must support {scope_title.lower()} while preserving the confirmed "
+                    "decision constraints."
+                ),
+                rationale=(
+                    "Derived from confirmed path narrative, selected feasibility strategy, and frozen baseline."
+                ),
+                acceptance_criteria=[
+                    "Behavior is testable with deterministic inputs.",
+                    "Output is traceable to a frozen baseline item.",
+                ],
+                source_refs=["step2", "step3", "step4"],
+            )
+        )
+
+    backlog_items: list[PRDBacklogItem] = []
+    backlog_count = max(8, min(15, len(requirements) + 2))
+    for index in range(backlog_count):
+        req = requirements[index % len(requirements)]
+        backlog_items.append(
+            PRDBacklogItem(
+                id=f"BL-{index + 1}",
+                title=f"Implement {req.title}",
+                requirement_id=req.id,
+                priority=_PRIORITIES[index % len(_PRIORITIES)],
+                type=("epic" if index % 3 == 0 else "story" if index % 3 == 1 else "task"),
+                summary=(
+                    f"Deliver requirement {req.id} for baseline "
+                    f"{context_pack.step4_scope.baseline_meta.baseline_id}."
+                ),
+                acceptance_criteria=[
+                    "Definition of done is explicit and reviewable.",
+                    "Linked requirement ID is present in metadata.",
+                ],
+                source_refs=["step4", "step3"] if index % 2 == 0 else ["step2", "step4"],
+                depends_on=[f"BL-{index}"] if index > 0 and index % 4 == 0 else [],
+            )
+        )
+
+    markdown_lines = [
+        "# Product Requirements Document",
+        "",
+        f"Baseline: {context_pack.step4_scope.baseline_meta.baseline_id}",
+        "",
+    ]
+    for section in sections:
+        markdown_lines.append(f"## {section.title}")
+        markdown_lines.append(section.content)
+        markdown_lines.append("")
+    markdown_lines.append("## Requirements")
+    for requirement in requirements:
+        markdown_lines.append(f"- {requirement.id}: {requirement.title}")
+
+    generation_meta = PRDGenerationMeta(
+        provider_id="mock-provider",
+        model="mock-prd-v2",
+        confirmed_path_id=context_pack.step2_path.path_id,
+        selected_plan_id=context_pack.step3_feasibility.selected_plan.id,
+        baseline_id=context_pack.step4_scope.baseline_meta.baseline_id,
     )
-
-    return PRDOutput(markdown=markdown, sections=sections)
+    return PRDOutput(
+        markdown="\n".join(markdown_lines),
+        sections=sections,
+        requirements=requirements,
+        backlog=PRDBacklog(items=backlog_items),
+        generation_meta=generation_meta,
+    )
 
 
 MOCK_EXPAND_NODES: list[dict[str, str]] = [
