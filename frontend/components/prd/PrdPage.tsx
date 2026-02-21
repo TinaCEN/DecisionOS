@@ -1,74 +1,23 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 
 import { GuardPanel } from '../common/GuardPanel'
 import { PrdView } from './PrdView'
-import { getScopeBaseline, postIdeaScopedAgent } from '../../lib/api'
-import { buildConfirmedPathContext, getLatestPath } from '../../lib/dag-api'
+import { ApiError, postIdeaScopedAgent, postPrdFeedback } from '../../lib/api'
 import { canOpenPrd } from '../../lib/guards'
 import { useIdeasStore } from '../../lib/ideas-store'
 import {
   prdOutputSchema,
-  type ConfirmedPathContext,
-  type DecisionContext,
-  type ScopeBaselineResponse,
-  type ScopeOutput,
+  type PrdFeedbackDimensions,
   type PrdInput,
   type PrdOutput,
 } from '../../lib/schemas'
 import { useDecisionStore } from '../../lib/store'
 
-const isPrdStale = (
-  context: DecisionContext,
-  confirmedPathContext: ConfirmedPathContext
-): boolean => {
-  if (!context.prd) {
-    return true
-  }
-
-  if (context.confirmed_dag_path_id !== confirmedPathContext.confirmed_path_id) {
-    return true
-  }
-  if (context.confirmed_dag_node_id !== confirmedPathContext.confirmed_node_id) {
-    return true
-  }
-  if (context.confirmed_dag_node_content !== confirmedPathContext.confirmed_node_content) {
-    return true
-  }
-  return (
-    (context.confirmed_dag_path_summary ?? null) !==
-    (confirmedPathContext.confirmed_path_summary ?? null)
-  )
-}
-
-const toScopeOutputFromBaseline = (baseline: ScopeBaselineResponse): ScopeOutput => {
-  const inScopeItems = baseline.items
-    .filter((item) => item.lane === 'in')
-    .sort((left, right) => left.display_order - right.display_order)
-    .map((item) => ({
-      id: item.id,
-      title: item.content,
-      desc: item.content,
-      priority: 'P1' as const,
-    }))
-  const outScopeItems = baseline.items
-    .filter((item) => item.lane === 'out')
-    .sort((left, right) => left.display_order - right.display_order)
-    .map((item) => ({
-      id: item.id,
-      title: item.content,
-      desc: item.content,
-      reason: 'Excluded from frozen baseline',
-    }))
-
-  return {
-    in_scope: inScopeItems,
-    out_scope: outScopeItems,
-  }
-}
+const globalPrdGenerationRequests = new Set<string>()
 
 type PrdPageProps = {
   baselineId?: string | null
@@ -77,6 +26,7 @@ type PrdPageProps = {
 export function PrdPage({ baselineId: baselineIdProp = null }: PrdPageProps) {
   const searchParams = useSearchParams()
   const context = useDecisionStore((state) => state.context)
+  const replaceContext = useDecisionStore((state) => state.replaceContext)
   const setPrd = useDecisionStore((state) => state.prd)
   const canOpen = canOpenPrd(context)
   const activeIdeaId = useIdeasStore((state) => state.activeIdeaId)
@@ -84,135 +34,59 @@ export function PrdPage({ baselineId: baselineIdProp = null }: PrdPageProps) {
     (state) => state.ideas.find((idea) => idea.id === state.activeIdeaId) ?? null
   )
   const setIdeaVersion = useIdeasStore((state) => state.setIdeaVersion)
-  const [confirmedPathContext, setConfirmedPathContext] = useState<ConfirmedPathContext | null>(
-    null
-  )
+  const loadIdeaDetail = useIdeasStore((state) => state.loadIdeaDetail)
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [scopeNotice, setScopeNotice] = useState<string | null>(null)
-  const [resolvedScope, setResolvedScope] = useState<ScopeOutput | null>(null)
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
+  const [retryNonce, setRetryNonce] = useState(0)
   const inFlightGenerationKeyRef = useRef<string | null>(null)
-  const completedGenerationKeyRef = useRef<string | null>(null)
   const baselineId = baselineIdProp ?? searchParams.get('baseline_id')
 
+  const generationKey = useMemo(
+    () =>
+      JSON.stringify({
+        baseline_id: baselineId ?? null,
+        selected_plan_id: context.selected_plan_id ?? null,
+        confirmed_path_id: context.confirmed_dag_path_id ?? null,
+      }),
+    [baselineId, context.confirmed_dag_path_id, context.selected_plan_id]
+  )
+
+  const isFreshBundle = useMemo(() => {
+    const meta = context.prd_bundle?.generation_meta
+    if (!meta || !baselineId) {
+      return false
+    }
+    return (
+      meta.baseline_id === baselineId &&
+      meta.selected_plan_id === context.selected_plan_id &&
+      meta.confirmed_path_id === context.confirmed_dag_path_id
+    )
+  }, [baselineId, context.confirmed_dag_path_id, context.prd_bundle, context.selected_plan_id])
+
   useEffect(() => {
-    if (!canOpen || !activeIdeaId) {
-      setResolvedScope(context.scope ?? null)
-      setScopeNotice(null)
+    if (!canOpen || !activeIdeaId || !activeIdea) {
       return
     }
-
     if (!baselineId) {
-      setResolvedScope(context.scope ?? null)
-      setScopeNotice('Using draft scope because no frozen baseline is selected.')
+      setErrorMessage('Select a frozen baseline to generate PRD and backlog.')
       return
     }
-
-    let cancelled = false
-    const run = async () => {
-      try {
-        const baseline = await getScopeBaseline(activeIdeaId, baselineId)
-        if (!cancelled) {
-          setResolvedScope(toScopeOutputFromBaseline(baseline))
-          setScopeNotice(null)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : 'Failed to load frozen baseline. Falling back to draft scope.'
-          setResolvedScope(context.scope ?? null)
-          setScopeNotice(message)
-        }
-      }
-    }
-
-    void run()
-    return () => {
-      cancelled = true
-    }
-  }, [activeIdeaId, baselineId, canOpen, context.scope])
-
-  useEffect(() => {
-    if (!canOpen || !activeIdeaId) {
-      setConfirmedPathContext(null)
+    const hasLocalOutput = Boolean(context.prd || context.prd_bundle?.output)
+    const shouldGenerate = retryNonce > 0 || (context.prd_bundle ? !isFreshBundle : !hasLocalOutput)
+    if (!shouldGenerate) {
       return
     }
-
-    let cancelled = false
-    const run = async () => {
-      try {
-        const latestPath = await getLatestPath(activeIdeaId)
-        if (!latestPath) {
-          throw new Error('No confirmed DAG path found. Please confirm a path in Idea Canvas.')
-        }
-        const next = buildConfirmedPathContext(latestPath)
-        if (!next) {
-          throw new Error('Confirmed path payload is invalid. Re-confirm the DAG path.')
-        }
-        if (!cancelled) {
-          setErrorMessage(null)
-          setConfirmedPathContext(next)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const message =
-            error instanceof Error ? error.message : 'Failed to load confirmed DAG path.'
-          setErrorMessage(message)
-          setConfirmedPathContext(null)
-        }
-      }
-    }
-
-    void run()
-    return () => {
-      cancelled = true
-    }
-  }, [activeIdeaId, canOpen, context.confirmed_dag_path_id])
-
-  useEffect(() => {
-    if (
-      !canOpen ||
-      !activeIdeaId ||
-      !activeIdea ||
-      !context.idea_seed ||
-      !context.selected_plan_id ||
-      !resolvedScope ||
-      !confirmedPathContext
-    ) {
+    const requestKey = `${generationKey}:${retryNonce}`
+    if (inFlightGenerationKeyRef.current === requestKey) {
       return
     }
-
-    const generationKey = JSON.stringify({
-      confirmed_path_id: confirmedPathContext.confirmed_path_id,
-      confirmed_node_id: confirmedPathContext.confirmed_node_id,
-      confirmed_node_content: confirmedPathContext.confirmed_node_content,
-      confirmed_path_summary: confirmedPathContext.confirmed_path_summary ?? null,
-      selected_plan_id: context.selected_plan_id,
-      scope: resolvedScope,
-      baseline_id: baselineId ?? null,
-    })
-    const needsGeneration = !context.prd || isPrdStale(context, confirmedPathContext)
-
-    if (!needsGeneration) {
-      completedGenerationKeyRef.current = generationKey
+    if (globalPrdGenerationRequests.has(requestKey)) {
       return
     }
-    if (inFlightGenerationKeyRef.current === generationKey) {
-      return
-    }
-    if (completedGenerationKeyRef.current === generationKey) {
-      return
-    }
-    inFlightGenerationKeyRef.current = generationKey
-
-    const payload: PrdInput = {
-      idea_seed: context.idea_seed,
-      ...confirmedPathContext,
-      selected_plan_id: context.selected_plan_id,
-      scope: resolvedScope,
-    }
+    inFlightGenerationKeyRef.current = requestKey
+    globalPrdGenerationRequests.add(requestKey)
 
     let cancelled = false
     setLoading(true)
@@ -224,7 +98,7 @@ export function PrdPage({ baselineId: baselineIdProp = null }: PrdPageProps) {
           activeIdeaId,
           'prd',
           {
-            ...payload,
+            baseline_id: baselineId,
             version: activeIdea.version,
           }
         )
@@ -234,12 +108,17 @@ export function PrdPage({ baselineId: baselineIdProp = null }: PrdPageProps) {
         }
 
         if (!cancelled) {
-          completedGenerationKeyRef.current = generationKey
           setIdeaVersion(activeIdeaId, envelope.idea_version)
-          setPrd(parsed.data)
+          const detail = await loadIdeaDetail(activeIdeaId)
+          if (detail) {
+            replaceContext(detail.context)
+          } else {
+            setPrd(parsed.data)
+          }
+          setRetryNonce(0)
         }
       } catch (error) {
-        if (inFlightGenerationKeyRef.current === generationKey) {
+        if (inFlightGenerationKeyRef.current === requestKey) {
           inFlightGenerationKeyRef.current = null
         }
         if (!cancelled) {
@@ -249,9 +128,10 @@ export function PrdPage({ baselineId: baselineIdProp = null }: PrdPageProps) {
           toast.error(message)
         }
       } finally {
-        if (inFlightGenerationKeyRef.current === generationKey) {
+        if (inFlightGenerationKeyRef.current === requestKey) {
           inFlightGenerationKeyRef.current = null
         }
+        globalPrdGenerationRequests.delete(requestKey)
         if (!cancelled) {
           setLoading(false)
         }
@@ -262,21 +142,69 @@ export function PrdPage({ baselineId: baselineIdProp = null }: PrdPageProps) {
 
     return () => {
       cancelled = true
-      if (inFlightGenerationKeyRef.current === generationKey) {
+      if (inFlightGenerationKeyRef.current === requestKey) {
         inFlightGenerationKeyRef.current = null
       }
+      globalPrdGenerationRequests.delete(requestKey)
     }
   }, [
     activeIdea,
     activeIdeaId,
     baselineId,
     canOpen,
-    confirmedPathContext,
-    context,
-    resolvedScope,
+    context.prd,
+    context.prd_bundle,
+    generationKey,
+    isFreshBundle,
+    loadIdeaDetail,
+    replaceContext,
+    retryNonce,
     setIdeaVersion,
     setPrd,
   ])
+
+  const handleRetry = () => {
+    setRetryNonce((previous) => previous + 1)
+  }
+
+  const handleSubmitFeedback = async (payload: {
+    rating_overall: number
+    rating_dimensions: PrdFeedbackDimensions
+    comment?: string
+  }) => {
+    if (!activeIdeaId || !activeIdea || !baselineId) {
+      return
+    }
+    setFeedbackSubmitting(true)
+    setFeedbackError(null)
+    try {
+      const response = await postPrdFeedback(activeIdeaId, {
+        version: activeIdea.version,
+        baseline_id: baselineId,
+        rating_overall: payload.rating_overall,
+        rating_dimensions: payload.rating_dimensions,
+        comment: payload.comment,
+      })
+      setIdeaVersion(activeIdeaId, response.idea_version)
+      const detail = await loadIdeaDetail(activeIdeaId)
+      if (detail) {
+        replaceContext(detail.context)
+      }
+      toast.success('Feedback saved')
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? `${error.code ?? 'REQUEST_FAILED'}: ${error.message}`
+          : error instanceof Error
+            ? error.message
+            : 'Failed to submit feedback.'
+      setFeedbackError(message)
+      toast.error(message)
+      throw error
+    } finally {
+      setFeedbackSubmitting(false)
+    }
+  }
 
   if (!canOpen) {
     return (
@@ -294,11 +222,17 @@ export function PrdPage({ baselineId: baselineIdProp = null }: PrdPageProps) {
   return (
     <main>
       <PrdView
-        prd={context.prd}
+        prd={context.prd_bundle?.output ?? context.prd}
+        bundle={context.prd_bundle}
         context={context}
         loading={loading}
         errorMessage={errorMessage}
-        scopeNotice={scopeNotice}
+        baselineId={baselineId}
+        onRetry={handleRetry}
+        feedbackLatest={context.prd_feedback_latest}
+        onSubmitFeedback={handleSubmitFeedback}
+        feedbackSubmitting={feedbackSubmitting}
+        feedbackError={feedbackError}
       />
     </main>
   )

@@ -13,6 +13,8 @@ import type {
   ScopeDraftResponse,
   ScopeDraftUpdateRequest,
   ScopeVersionedRequest,
+  PrdFeedbackLatest,
+  PrdFeedbackRequest,
   TestAIProviderRequest,
   TestAIProviderResponse,
 } from './schemas'
@@ -288,6 +290,16 @@ export const postIdeaScopedAgent = async <TRequest, TData>(
 ): Promise<AgentEnvelope & { data: TData }> => {
   return await jsonPost<TRequest, AgentEnvelope & { data: TData }>(
     `/ideas/${ideaId}/agents/${route}`,
+    payload
+  )
+}
+
+export const postPrdFeedback = async (
+  ideaId: string,
+  payload: PrdFeedbackRequest
+): Promise<AgentEnvelope & { data: PrdFeedbackLatest }> => {
+  return await jsonPost<PrdFeedbackRequest, AgentEnvelope & { data: PrdFeedbackLatest }>(
+    `/ideas/${ideaId}/prd/feedback`,
     payload
   )
 }

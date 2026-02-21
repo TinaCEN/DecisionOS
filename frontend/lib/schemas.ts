@@ -168,28 +168,89 @@ export const scopeVersionedRequestSchema = z.object({
   version: z.number().int().nonnegative(),
 })
 
-export const prdSectionsSchema = z.object({
-  problem_statement: z.string().min(1),
-  target_user: z.string().min(1),
-  core_workflow: z.string().min(1),
-  mvp_scope: z.string().min(1),
-  success_metrics: z.string().min(1),
-  risk_analysis: z.string().min(1),
+export const prdSourceRefSchema = z.enum(['step2', 'step3', 'step4'])
+export const prdBacklogTypeSchema = z.enum(['epic', 'story', 'task'])
+
+export const prdSectionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  content: z.string().min(1),
+})
+
+export const prdRequirementSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  rationale: z.string().min(1),
+  acceptance_criteria: z.array(z.string().min(1)).min(2),
+  source_refs: z.array(prdSourceRefSchema).min(1),
+})
+
+export const prdBacklogItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  requirement_id: z.string().min(1),
+  priority: prioritySchema,
+  type: prdBacklogTypeSchema,
+  summary: z.string().min(1),
+  acceptance_criteria: z.array(z.string().min(1)).min(2),
+  source_refs: z.array(prdSourceRefSchema).min(1),
+  depends_on: z.array(z.string().min(1)).default([]),
+})
+
+export const prdBacklogSchema = z.object({
+  items: z.array(prdBacklogItemSchema).min(8).max(15),
+})
+
+export const prdGenerationMetaSchema = z.object({
+  provider_id: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  confirmed_path_id: z.string().min(1),
+  selected_plan_id: z.string().min(1),
+  baseline_id: z.string().min(1),
 })
 
 export const prdInputSchema = z.object({
-  idea_seed: z.string().min(1),
-  confirmed_path_id: z.string().min(1),
-  confirmed_node_id: z.string().min(1),
-  confirmed_node_content: z.string().min(1),
-  confirmed_path_summary: z.string().min(1).optional(),
-  selected_plan_id: z.string().min(1),
-  scope: scopeOutputSchema,
+  baseline_id: z.string().min(1),
 })
 
 export const prdOutputSchema = z.object({
-  markdown: z.string(),
-  sections: prdSectionsSchema,
+  markdown: z.string().min(1),
+  sections: z.array(prdSectionSchema).min(6),
+  requirements: z.array(prdRequirementSchema).min(6).max(12),
+  backlog: prdBacklogSchema,
+  generation_meta: prdGenerationMetaSchema,
+})
+
+export const prdBundleSchema = z.object({
+  baseline_id: z.string().min(1),
+  context_fingerprint: z.string().min(1),
+  generated_at: z.string().min(1),
+  generation_meta: prdGenerationMetaSchema,
+  output: prdOutputSchema,
+})
+
+export const prdFeedbackDimensionsSchema = z.object({
+  clarity: z.number().int().min(1).max(5),
+  completeness: z.number().int().min(1).max(5),
+  actionability: z.number().int().min(1).max(5),
+  scope_fit: z.number().int().min(1).max(5),
+})
+
+export const prdFeedbackLatestSchema = z.object({
+  baseline_id: z.string().min(1),
+  submitted_at: z.string().min(1),
+  rating_overall: z.number().int().min(1).max(5),
+  rating_dimensions: prdFeedbackDimensionsSchema,
+  comment: z.string().max(2000).nullable().optional(),
+})
+
+export const prdFeedbackRequestSchema = z.object({
+  version: z.number().int().nonnegative(),
+  baseline_id: z.string().min(1),
+  rating_overall: z.number().int().min(1).max(5),
+  rating_dimensions: prdFeedbackDimensionsSchema,
+  comment: z.string().max(2000).optional(),
 })
 
 export const ideaStageSchema = z.enum(['idea_canvas', 'feasibility', 'scope_freeze', 'prd'])
@@ -224,6 +285,8 @@ export const decisionContextSchema = z.object({
   current_scope_baseline_id: z.string().min(1).optional(),
   current_scope_baseline_version: z.number().int().positive().optional(),
   prd: prdOutputSchema.optional(),
+  prd_bundle: prdBundleSchema.optional(),
+  prd_feedback_latest: prdFeedbackLatestSchema.optional(),
   confirmed_dag_path_id: z.string().optional(),
   confirmed_dag_node_id: z.string().optional(),
   confirmed_dag_node_content: z.string().optional(),
@@ -324,9 +387,19 @@ export type ScopeDraftResponse = z.infer<typeof scopeDraftResponseSchema>
 export type ScopeDraftItemInput = z.infer<typeof scopeDraftItemInputSchema>
 export type ScopeDraftUpdateRequest = z.infer<typeof scopeDraftUpdateRequestSchema>
 export type ScopeVersionedRequest = z.infer<typeof scopeVersionedRequestSchema>
-export type PrdSections = z.infer<typeof prdSectionsSchema>
+export type PrdSourceRef = z.infer<typeof prdSourceRefSchema>
+export type PrdBacklogType = z.infer<typeof prdBacklogTypeSchema>
+export type PrdSection = z.infer<typeof prdSectionSchema>
+export type PrdRequirement = z.infer<typeof prdRequirementSchema>
+export type PrdBacklogItem = z.infer<typeof prdBacklogItemSchema>
+export type PrdBacklog = z.infer<typeof prdBacklogSchema>
+export type PrdGenerationMeta = z.infer<typeof prdGenerationMetaSchema>
 export type PrdInput = z.infer<typeof prdInputSchema>
 export type PrdOutput = z.infer<typeof prdOutputSchema>
+export type PrdBundle = z.infer<typeof prdBundleSchema>
+export type PrdFeedbackDimensions = z.infer<typeof prdFeedbackDimensionsSchema>
+export type PrdFeedbackLatest = z.infer<typeof prdFeedbackLatestSchema>
+export type PrdFeedbackRequest = z.infer<typeof prdFeedbackRequestSchema>
 export type DecisionContext = z.infer<typeof decisionContextSchema>
 export type IdeaStage = z.infer<typeof ideaStageSchema>
 export type IdeaStatus = z.infer<typeof ideaStatusSchema>

@@ -1,8 +1,9 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { PrdPage } from '../PrdPage'
-import { getScopeBaseline, postIdeaScopedAgent } from '../../../lib/api'
+import { postIdeaScopedAgent, postPrdFeedback } from '../../../lib/api'
 import { useIdeasStore } from '../../../lib/ideas-store'
 import { useDecisionStore } from '../../../lib/store'
 import { nextNavigationMock } from '../../../test/setup'
@@ -11,20 +12,10 @@ vi.mock('../../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../lib/api')>()
   return {
     ...actual,
-    getScopeBaseline: vi.fn(),
     postIdeaScopedAgent: vi.fn(),
+    postPrdFeedback: vi.fn(),
   }
 })
-
-vi.mock('../../../lib/dag-api', () => ({
-  getLatestPath: vi.fn().mockResolvedValue({ id: 'path-1' }),
-  buildConfirmedPathContext: vi.fn().mockReturnValue({
-    confirmed_path_id: 'path-1',
-    confirmed_node_id: 'node-1',
-    confirmed_node_content: 'Node content',
-    confirmed_path_summary: 'Summary',
-  }),
-}))
 
 vi.mock('sonner', () => ({
   toast: {
@@ -34,7 +25,50 @@ vi.mock('sonner', () => ({
   },
 }))
 
+const buildPrdData = () => {
+  const requirements = Array.from({ length: 6 }, (_, index) => ({
+    id: `REQ-${index + 1}`,
+    title: `Requirement ${index + 1}`,
+    description: `Requirement description ${index + 1}`,
+    rationale: 'Rationale',
+    acceptance_criteria: ['Criterion A', 'Criterion B'],
+    source_refs: ['step2', 'step3', 'step4'] as const,
+  }))
+  const backlogItems = Array.from({ length: 8 }, (_, index) => ({
+    id: `BL-${index + 1}`,
+    title: `Backlog ${index + 1}`,
+    requirement_id: requirements[index % requirements.length].id,
+    priority: 'P1' as const,
+    type: 'story' as const,
+    summary: `Backlog summary ${index + 1}`,
+    acceptance_criteria: ['Ship endpoint', 'Add test'],
+    source_refs: ['step4'] as const,
+    depends_on: [],
+  }))
+  return {
+    markdown: '# PRD',
+    sections: [
+      { id: 'problem', title: 'Problem', content: 'Problem section' },
+      { id: 'users', title: 'Users', content: 'Users section' },
+      { id: 'goals', title: 'Goals', content: 'Goals section' },
+      { id: 'workflow', title: 'Workflow', content: 'Workflow section' },
+      { id: 'scope', title: 'Scope', content: 'Scope section' },
+      { id: 'risk', title: 'Risk', content: 'Risk section' },
+    ],
+    requirements,
+    backlog: { items: backlogItems },
+    generation_meta: {
+      provider_id: 'mock',
+      model: 'mock-v2',
+      confirmed_path_id: 'path-1',
+      selected_plan_id: 'plan-a',
+      baseline_id: 'baseline-1',
+    },
+  }
+}
+
 const initStores = () => {
+  const loadIdeaDetail = vi.fn().mockResolvedValue(null)
   useIdeasStore.setState({
     activeIdeaId: 'idea-1',
     ideas: [
@@ -49,6 +83,7 @@ const initStores = () => {
         updated_at: '2026-02-20T00:00:00.000Z',
       },
     ],
+    loadIdeaDetail,
   })
   useDecisionStore.setState({
     context: {
@@ -56,30 +91,10 @@ const initStores = () => {
       created_at: '2026-02-20T00:00:00.000Z',
       idea_seed: 'seed',
       selected_plan_id: 'plan-a',
+      confirmed_dag_path_id: 'path-1',
       scope_frozen: true,
       current_scope_baseline_id: 'baseline-1',
       current_scope_baseline_version: 1,
-      feasibility: {
-        plans: [
-          {
-            id: 'plan-a',
-            name: 'Plan A',
-            summary: 'Summary',
-            score_overall: 7.3,
-            scores: {
-              technical_feasibility: 7,
-              market_viability: 8,
-              execution_risk: 7,
-            },
-            reasoning: {
-              technical_feasibility: 'tech',
-              market_viability: 'market',
-              execution_risk: 'risk',
-            },
-            recommended_positioning: 'position',
-          },
-        ],
-      },
       scope: {
         in_scope: [{ id: 'in-1', title: 'MVP', desc: 'desc', priority: 'P1' as const }],
         out_scope: [{ id: 'out-1', title: 'Billing', desc: 'desc', reason: 'later' }],
@@ -88,62 +103,81 @@ const initStores = () => {
   })
 }
 
-describe('PrdPage baseline selection', () => {
+describe('PrdPage baseline flow', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     initStores()
+    nextNavigationMock.setSearchParams('baseline_id=baseline-1')
     vi.mocked(postIdeaScopedAgent).mockResolvedValue({
       idea_id: 'idea-1',
       idea_version: 13,
-      data: {
-        markdown: '# PRD',
-        sections: {
-          problem_statement: 'problem',
-          target_user: 'user',
-          core_workflow: 'workflow',
-          mvp_scope: 'scope',
-          success_metrics: 'metrics',
-          risk_analysis: 'risk',
-        },
-      },
+      data: buildPrdData(),
     })
-    vi.mocked(getScopeBaseline).mockResolvedValue({
-      baseline: {
-        id: 'baseline-1',
-        idea_id: 'idea-1',
-        version: 1,
-        status: 'frozen',
-        source_baseline_id: null,
-        created_at: '2026-02-20T00:00:00.000Z',
-        frozen_at: '2026-02-20T00:05:00.000Z',
-      },
-      items: [
-        {
-          id: 'item-1',
-          baseline_id: 'baseline-1',
-          lane: 'in',
-          content: 'Core workflow',
-          display_order: 0,
-          created_at: '2026-02-20T00:00:00.000Z',
+    vi.mocked(postPrdFeedback).mockResolvedValue({
+      idea_id: 'idea-1',
+      idea_version: 14,
+      data: {
+        baseline_id: 'baseline-1',
+        submitted_at: '2026-02-20T00:00:00.000Z',
+        rating_overall: 5,
+        rating_dimensions: {
+          clarity: 5,
+          completeness: 5,
+          actionability: 5,
+          scope_fit: 5,
         },
-      ],
+      },
     })
   })
 
-  test('prefers frozen baseline when baseline_id is provided', async () => {
-    nextNavigationMock.setSearchParams('baseline_id=baseline-1')
-
+  test('posts minimal PRD generation payload', async () => {
     render(<PrdPage />)
     await waitFor(() => {
-      expect(getScopeBaseline).toHaveBeenCalledWith('idea-1', 'baseline-1')
+      expect(postIdeaScopedAgent).toHaveBeenCalledWith('idea-1', 'prd', {
+        version: 12,
+        baseline_id: 'baseline-1',
+      })
     })
   })
 
-  test('shows warning when baseline_id is missing', async () => {
-    nextNavigationMock.setSearchParams('')
+  test('renders backlog and requirement-linked output after generation', async () => {
+    render(<PrdPage />)
+    expect(await screen.findByText('Backlog 1')).toBeInTheDocument()
+    expect(screen.getAllByText(/Requirement 1/).length).toBeGreaterThan(0)
+  })
+
+  test('shows explicit error state and retries generation', async () => {
+    vi.mocked(postIdeaScopedAgent)
+      .mockRejectedValueOnce(new Error('PRD generation failed'))
+      .mockResolvedValueOnce({
+        idea_id: 'idea-1',
+        idea_version: 13,
+        data: buildPrdData(),
+      })
 
     render(<PrdPage />)
-    expect(
-      await screen.findByText('Using draft scope because no frozen baseline is selected.')
-    ).toBeInTheDocument()
+    expect(await screen.findByText('PRD generation failed')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => {
+      expect(vi.mocked(postIdeaScopedAgent).mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  test('submits feedback to latest-only endpoint', async () => {
+    render(<PrdPage />)
+    await screen.findByText('Backlog 1')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Good' })).toBeEnabled()
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Good' }))
+    await waitFor(() => {
+      expect(postPrdFeedback).toHaveBeenCalledWith(
+        'idea-1',
+        expect.objectContaining({
+          baseline_id: 'baseline-1',
+          rating_overall: 5,
+        })
+      )
+    })
   })
 })
