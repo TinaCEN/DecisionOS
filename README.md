@@ -173,6 +173,8 @@ Coolify quick deploy:
    - `DECISIONOS_CORS_ORIGINS=https://<your-web-domain>`
    - `DECISIONOS_SECRET_KEY=<strong-random-secret>`
    - `LLM_MODE=mock` (or `auto` in production)
+   - **REQUIRED:** `DECISIONOS_SEED_ADMIN_USERNAME=<admin-username>` (no default)
+   - **REQUIRED:** `DECISIONOS_SEED_ADMIN_PASSWORD=<strong-admin-password>` (no default)
 4. Expose `web` and `api` with their own domains in Coolify.
 
 Notes:

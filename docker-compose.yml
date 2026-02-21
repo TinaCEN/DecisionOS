@@ -8,6 +8,9 @@ services:
       DECISIONOS_DB_PATH: ${DECISIONOS_DB_PATH:-/data/decisionos.db}
       DECISIONOS_SECRET_KEY: ${DECISIONOS_SECRET_KEY:-decisionos-dev-secret-change-me}
       DECISIONOS_CORS_ORIGINS: ${DECISIONOS_CORS_ORIGINS:-http://localhost:3000}
+      # REQUIRED: Admin credentials must be set, no defaults
+      DECISIONOS_SEED_ADMIN_USERNAME: ${DECISIONOS_SEED_ADMIN_USERNAME:?Admin username is required. Set DECISIONOS_SEED_ADMIN_USERNAME env variable.}
+      DECISIONOS_SEED_ADMIN_PASSWORD: ${DECISIONOS_SEED_ADMIN_PASSWORD:?Admin password is required. Set DECISIONOS_SEED_ADMIN_PASSWORD env variable.}
     volumes:
       - decisionos_data:/data
     ports:
