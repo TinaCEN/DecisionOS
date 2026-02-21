@@ -8,13 +8,17 @@ import unittest
 from dataclasses import dataclass
 from unittest.mock import patch
 
+from tests._test_env import ensure_required_seed_env
+
 
 class DagApiTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
         os.environ["LLM_MODE"] = "mock"
+        os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
 
         from app.core.settings import get_settings
         from app.main import create_app

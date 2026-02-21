@@ -6,13 +6,16 @@ import tempfile
 import unittest
 
 from tests.test_api_ideas_and_agents import _AsgiTestClient
+from tests._test_env import ensure_required_seed_env
 
 
 class AISettingsApiTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self._tmpdir.name, "decisionos-ai-settings-test.db")
         os.environ["DECISIONOS_DB_PATH"] = self.db_path
+        os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
 
         from app.core.settings import get_settings
         from app.main import create_app

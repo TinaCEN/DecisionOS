@@ -1,6 +1,7 @@
 import { stream, type ServerSentEventMessage } from 'fetch-event-stream'
 
-import { buildApiUrl } from './api'
+import { buildApiUrl, withAuthHeaders } from './api'
+import { clearAuthSession } from './auth'
 
 type SseEvent<T = unknown> = {
   event: string
@@ -82,11 +83,11 @@ export const streamPost = async <
   try {
     const eventStream = await stream(buildApiUrl(path), {
       method: 'POST',
-      headers: {
+      headers: withAuthHeaders({
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
         ...(handlers.headers ?? {}),
-      },
+      }),
       body: JSON.stringify(payload),
       signal,
     })
@@ -125,6 +126,9 @@ export const streamPost = async <
     }
 
     if (error instanceof Response) {
+      if (error.status === 401) {
+        clearAuthSession()
+      }
       const bodyText = await error.text().catch(() => '')
       const responseError = new Error(
         `SSE request failed with ${error.status}${bodyText ? `: ${bodyText}` : ''}`

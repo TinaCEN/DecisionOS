@@ -2,11 +2,9 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 import type {
-  DirectionId,
   DecisionContext,
   FeasibilityOutput,
   OpportunityOutput,
-  PathId,
   PrdOutput,
   ScopeOutput,
 } from './schemas'
@@ -15,8 +13,6 @@ type DecisionStore = {
   context: DecisionContext
   idea: (ideaSeed: string) => void
   opportunity: (opportunity: OpportunityOutput) => void
-  direction: (directionId: DirectionId) => void
-  path: (pathId: PathId) => void
   feasibility: (feasibility: FeasibilityOutput) => void
   plan: (planId: string) => void
   scope: (scope: ScopeOutput) => void
@@ -50,8 +46,6 @@ export const useDecisionStore = create<DecisionStore>()(
             ...state.context,
             idea_seed: ideaSeed,
             opportunity: undefined,
-            selected_direction_id: undefined,
-            path_id: undefined,
             feasibility: undefined,
             selected_plan_id: undefined,
             scope: undefined,
@@ -64,32 +58,6 @@ export const useDecisionStore = create<DecisionStore>()(
           context: {
             ...state.context,
             opportunity,
-            selected_direction_id: undefined,
-            path_id: undefined,
-            feasibility: undefined,
-            selected_plan_id: undefined,
-            scope: undefined,
-            scope_frozen: false,
-            prd: undefined,
-          },
-        })),
-      direction: (directionId) =>
-        set((state) => ({
-          context: {
-            ...state.context,
-            selected_direction_id: directionId,
-            feasibility: undefined,
-            selected_plan_id: undefined,
-            scope: undefined,
-            scope_frozen: false,
-            prd: undefined,
-          },
-        })),
-      path: (pathId) =>
-        set((state) => ({
-          context: {
-            ...state.context,
-            path_id: pathId,
             feasibility: undefined,
             selected_plan_id: undefined,
             scope: undefined,

@@ -1,14 +1,19 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 
 import { canOpenPrd, canOpenScope, canRunFeasibility } from '../../lib/guards'
 import { buildIdeaStepHref, resolveIdeaIdForRouting, type IdeaStep } from '../../lib/idea-routes'
 import { useIdeasStore } from '../../lib/ideas-store'
 import { useDecisionStore } from '../../lib/store'
+import {
+  clearAuthSession,
+  getAuthSessionSnapshot,
+  getAuthSessionServerSnapshot,
+  subscribeAuthSession,
+} from '../../lib/auth'
 
 type StepItem = {
   step: 'ideas' | IdeaStep
@@ -69,6 +74,24 @@ const getBadgeClassName = (item: StepItem, isHydrated: boolean): string => {
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
+  const router = useRouter()
+  const isLoginRoute = pathname === '/login'
+  const authSession = useSyncExternalStore(
+    subscribeAuthSession,
+    getAuthSessionSnapshot,
+    getAuthSessionServerSnapshot
+  )
+
+  useEffect(() => {
+    if (!authSession && !isLoginRoute) {
+      router.replace('/login')
+      return
+    }
+    if (authSession && isLoginRoute) {
+      router.replace('/ideas')
+    }
+  }, [authSession, isLoginRoute, pathname, router])
+
   const activeIdeaId = useIdeasStore((state) => state.activeIdeaId)
   const setActiveIdeaId = useIdeasStore((state) => state.setActiveIdeaId)
   useEffect(() => {
@@ -148,6 +171,18 @@ export function AppShell({ children }: AppShellProps) {
     return routeIdeaId ? buildIdeaStepHref(routeIdeaId, step) : '/ideas'
   }
 
+  if (isLoginRoute) {
+    return <>{children}</>
+  }
+
+  if (!authSession) {
+    return (
+      <div className="mx-auto flex min-h-screen w-full max-w-xl items-center justify-center px-6 text-sm text-slate-600">
+        Verifying session...
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen">
       <a
@@ -169,12 +204,25 @@ export function AppShell({ children }: AppShellProps) {
               <p className="text-xs text-slate-500">
                 Session: {hydratedContext ? hydratedContext.session_id.slice(0, 8) : 'Syncing...'}
               </p>
+              <p className="text-xs text-slate-500">
+                User: {authSession.username} ({authSession.role})
+              </p>
               <Link
                 href="/settings"
                 className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
                 Settings
               </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  clearAuthSession()
+                  router.replace('/login')
+                }}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Logout
+              </button>
             </div>
           </div>
           <nav aria-label="Workflow steps">

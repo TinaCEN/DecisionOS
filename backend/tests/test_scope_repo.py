@@ -4,9 +4,12 @@ import os
 import tempfile
 import unittest
 
+from tests._test_env import ensure_required_seed_env
+
 
 class ScopeRepoTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "scope-repo-test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
@@ -102,7 +105,7 @@ class ScopeRepoTestCase(unittest.TestCase):
             [("in", "Clone in"), ("out", "Clone out")],
         )
 
-    def test_bootstrap_without_items_migrates_legacy_context_scope(self) -> None:
+    def test_bootstrap_without_items_ignores_existing_context_scope(self) -> None:
         idea = self.idea_repo.get_idea(self.idea.id)
         assert idea is not None
         next_context = dict(idea.context)
@@ -132,7 +135,7 @@ class ScopeRepoTestCase(unittest.TestCase):
         assert migrated.baseline is not None
         self.assertEqual(
             [(item.lane, item.content) for item in migrated.baseline.items],
-            [("in", "Legacy In"), ("out", "Legacy Out")],
+            [],
         )
 
     def test_patch_draft_replaces_items_and_order(self) -> None:
@@ -174,7 +177,7 @@ class ScopeRepoTestCase(unittest.TestCase):
         self.assertEqual(idea.context["current_scope_baseline_id"], frozen.baseline.id)
         self.assertEqual(idea.context["current_scope_baseline_version"], frozen.baseline.version)
 
-    def test_freeze_preserves_legacy_scope_metadata_when_titles_match(self) -> None:
+    def test_freeze_rebuilds_scope_metadata_from_baseline(self) -> None:
         idea = self.idea_repo.get_idea(self.idea.id)
         assert idea is not None
         next_context = dict(idea.context)
@@ -227,11 +230,11 @@ class ScopeRepoTestCase(unittest.TestCase):
         assert isinstance(in_scope, list)
         assert isinstance(out_scope, list)
         self.assertEqual(in_scope[0]["title"], "Keep In Metadata")
-        self.assertEqual(in_scope[0]["desc"], "in-desc")
-        self.assertEqual(in_scope[0]["priority"], "P2")
+        self.assertEqual(in_scope[0]["desc"], "")
+        self.assertEqual(in_scope[0]["priority"], "P1")
         self.assertEqual(out_scope[0]["title"], "Keep Out Metadata")
-        self.assertEqual(out_scope[0]["desc"], "out-desc")
-        self.assertEqual(out_scope[0]["reason"], "out-reason")
+        self.assertEqual(out_scope[0]["desc"], "")
+        self.assertEqual(out_scope[0]["reason"], "")
 
     def test_new_version_creates_next_draft_from_latest_frozen(self) -> None:
         bootstrapped = self.scope_repo.bootstrap_draft(self.idea.id, version=self.idea.version)

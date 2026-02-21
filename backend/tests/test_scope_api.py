@@ -7,12 +7,16 @@ import tempfile
 import unittest
 from dataclasses import dataclass
 
+from tests._test_env import ensure_required_seed_env
+
 
 class ScopeApiTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "scope-api-test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
+        os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
 
         from app.core.settings import get_settings
         from app.main import create_app
@@ -156,7 +160,7 @@ class ScopeApiTestCase(unittest.TestCase):
         self.assertEqual(detail["context"]["current_scope_baseline_id"], frozen["data"]["id"])
         self.assertEqual(detail["context"]["current_scope_baseline_version"], 1)
 
-    def test_freeze_preserves_legacy_scope_metadata_when_titles_match(self) -> None:
+    def test_freeze_rebuilds_scope_metadata_from_baseline(self) -> None:
         idea_id, version = self._create_idea("Scope Freeze Metadata")
         detail_status, detail = self.client.request_json("GET", f"/ideas/{idea_id}")
         self.assertEqual(detail_status, 200)
@@ -216,11 +220,11 @@ class ScopeApiTestCase(unittest.TestCase):
         assert latest is not None
         latest_scope = latest["context"]["scope"]
         self.assertEqual(latest_scope["in_scope"][0]["title"], "Keep Metadata In")
-        self.assertEqual(latest_scope["in_scope"][0]["desc"], "in-desc")
-        self.assertEqual(latest_scope["in_scope"][0]["priority"], "P2")
+        self.assertEqual(latest_scope["in_scope"][0]["desc"], "")
+        self.assertEqual(latest_scope["in_scope"][0]["priority"], "P1")
         self.assertEqual(latest_scope["out_scope"][0]["title"], "Keep Metadata Out")
-        self.assertEqual(latest_scope["out_scope"][0]["desc"], "out-desc")
-        self.assertEqual(latest_scope["out_scope"][0]["reason"], "out-reason")
+        self.assertEqual(latest_scope["out_scope"][0]["desc"], "")
+        self.assertEqual(latest_scope["out_scope"][0]["reason"], "")
 
     def test_new_version_clones_latest_frozen(self) -> None:
         idea_id, version = self._create_idea("Scope New Version")

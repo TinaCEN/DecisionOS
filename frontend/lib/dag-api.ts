@@ -1,4 +1,4 @@
-import { buildApiUrl } from './api'
+import { ApiError, jsonGet, jsonPost } from './api'
 import type { ConfirmedPathContext, ConfirmedPathNode } from './schemas'
 
 export interface IdeaNode {
@@ -58,19 +58,13 @@ export const EXPANSION_PATTERNS = [
 ] as const
 
 export async function listNodes(ideaId: string): Promise<IdeaNode[]> {
-  const r = await fetch(buildApiUrl(`/ideas/${ideaId}/nodes`))
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
+  return await jsonGet<IdeaNode[]>(`/ideas/${ideaId}/nodes`)
 }
 
 export async function createRootNode(ideaId: string, content: string): Promise<IdeaNode> {
-  const r = await fetch(buildApiUrl(`/ideas/${ideaId}/nodes`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+  return await jsonPost<{ content: string }, IdeaNode>(`/ideas/${ideaId}/nodes`, {
+    content,
   })
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
 }
 
 export async function expandUserNode(
@@ -78,30 +72,27 @@ export async function expandUserNode(
   nodeId: string,
   description: string
 ): Promise<IdeaNode[]> {
-  const r = await fetch(buildApiUrl(`/ideas/${ideaId}/nodes/${nodeId}/expand/user`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description }),
-  })
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
+  return await jsonPost<{ description: string }, IdeaNode[]>(
+    `/ideas/${ideaId}/nodes/${nodeId}/expand/user`,
+    { description }
+  )
 }
 
 export async function confirmPath(ideaId: string, nodeChain: string[]): Promise<IdeaPath> {
-  const r = await fetch(buildApiUrl(`/ideas/${ideaId}/paths`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ node_chain: nodeChain }),
+  return await jsonPost<{ node_chain: string[] }, IdeaPath>(`/ideas/${ideaId}/paths`, {
+    node_chain: nodeChain,
   })
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
 }
 
 export async function getLatestPath(ideaId: string): Promise<IdeaPath | null> {
-  const r = await fetch(buildApiUrl(`/ideas/${ideaId}/paths/latest`))
-  if (r.status === 404) return null
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
+  try {
+    return await jsonGet<IdeaPath>(`/ideas/${ideaId}/paths/latest`)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null
+    }
+    throw error
+  }
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {

@@ -1,6 +1,9 @@
 import type {
   AISettings,
   AgentEnvelope,
+  AuthLoginRequest,
+  AuthLoginResponse,
+  AuthUser,
   CreateIdeaRequest,
   IdeaDetail,
   IdeaStatus,
@@ -18,10 +21,23 @@ import type {
   TestAIProviderRequest,
   TestAIProviderResponse,
 } from './schemas'
+import { clearAuthSession, getAccessToken } from './auth'
 
-const DEFAULT_API_BASE_URL = 'http://localhost:8000'
+const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000'
 
-export const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL
+const resolveRuntimeApiBaseUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL
+  }
+
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:8000`
+  }
+
+  return DEFAULT_API_BASE_URL
+}
+
+export const apiBaseUrl = resolveRuntimeApiBaseUrl()
 
 export class ApiError extends Error {
   status: number
@@ -58,6 +74,10 @@ const buildApiError = async (response: Response): Promise<ApiError> => {
     }
   }
 
+  if (response.status === 401) {
+    clearAuthSession()
+  }
+
   return new ApiError(
     `Request failed with ${response.status}${messageBody ? `: ${messageBody}` : ''}`,
     response.status,
@@ -73,6 +93,15 @@ export const buildApiUrl = (path: string): string => {
   return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+export const withAuthHeaders = (headers?: HeadersInit): Headers => {
+  const nextHeaders = new Headers(headers ?? {})
+  const token = getAccessToken()
+  if (token && !nextHeaders.has('Authorization')) {
+    nextHeaders.set('Authorization', `Bearer ${token}`)
+  }
+  return nextHeaders
+}
+
 export const jsonPost = async <TRequest, TResponse>(
   path: string,
   payload: TRequest,
@@ -80,12 +109,12 @@ export const jsonPost = async <TRequest, TResponse>(
 ): Promise<TResponse> => {
   const response = await fetch(buildApiUrl(path), {
     method: 'POST',
-    headers: {
+    ...init,
+    headers: withAuthHeaders({
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
-    },
+    }),
     body: JSON.stringify(payload),
-    ...init,
   })
 
   if (!response.ok) {
@@ -99,6 +128,7 @@ export const jsonGet = async <TResponse>(path: string, init?: RequestInit): Prom
   const response = await fetch(buildApiUrl(path), {
     method: 'GET',
     ...init,
+    headers: withAuthHeaders(init?.headers),
   })
 
   if (!response.ok) {
@@ -115,12 +145,12 @@ export const jsonPatch = async <TRequest, TResponse>(
 ): Promise<TResponse> => {
   const response = await fetch(buildApiUrl(path), {
     method: 'PATCH',
-    headers: {
+    ...init,
+    headers: withAuthHeaders({
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
-    },
+    }),
     body: JSON.stringify(payload),
-    ...init,
   })
 
   if (!response.ok) {
@@ -134,6 +164,7 @@ export const jsonDelete = async (path: string, init?: RequestInit): Promise<void
   const response = await fetch(buildApiUrl(path), {
     method: 'DELETE',
     ...init,
+    headers: withAuthHeaders(init?.headers),
   })
 
   if (!response.ok) {
@@ -152,6 +183,28 @@ const buildIdeasQuery = (status?: IdeaStatus[]): string => {
 
 export const getDefaultWorkspace = async (): Promise<{ id: string; name: string }> => {
   return await jsonGet('/workspaces/default')
+}
+
+export const login = async (payload: AuthLoginRequest): Promise<AuthLoginResponse> => {
+  return await jsonPost<AuthLoginRequest, AuthLoginResponse>('/auth/login', payload)
+}
+
+export const getMe = async (): Promise<AuthUser> => {
+  return await jsonGet<AuthUser>('/auth/me')
+}
+
+export const logout = async (): Promise<void> => {
+  const response = await fetch(buildApiUrl('/auth/logout'), {
+    method: 'POST',
+    headers: withAuthHeaders({
+      'Content-Type': 'application/json',
+    }),
+    body: '{}',
+  })
+
+  if (!response.ok) {
+    throw await buildApiError(response)
+  }
 }
 
 export const listIdeas = async (status?: IdeaStatus[]): Promise<IdeaSummary[]> => {

@@ -272,15 +272,34 @@ export function ScopeFreezePage() {
             workingVersion = envelope.idea_version
             versionChanged = true
           } catch (bootstrapError) {
-            if (!cancelled) {
-              const message =
-                bootstrapError instanceof Error
-                  ? bootstrapError.message
-                  : 'Failed to bootstrap scope draft.'
-              setErrorMessage(message)
-              toast.error(message)
+            if (bootstrapError instanceof ApiError && bootstrapError.status === 409) {
+              try {
+                loadedDraft = await getScopeDraft(routeIdeaId)
+                const synced = await syncContextFromServer(workingVersion)
+                workingVersion = synced.version
+                versionChanged = versionChanged || synced.synced
+              } catch (recoverError) {
+                if (!cancelled) {
+                  const message =
+                    recoverError instanceof Error
+                      ? recoverError.message
+                      : 'Failed to recover scope draft after version conflict.'
+                  setErrorMessage(message)
+                  toast.error(message)
+                }
+                return
+              }
+            } else {
+              if (!cancelled) {
+                const message =
+                  bootstrapError instanceof Error
+                    ? bootstrapError.message
+                    : 'Failed to bootstrap scope draft.'
+                setErrorMessage(message)
+                toast.error(message)
+              }
+              return
             }
-            return
           }
         }
 

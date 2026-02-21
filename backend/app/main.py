@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.auth import require_authenticated_user
 from app.core.settings import get_settings
 from app.db.bootstrap import initialize_database
 from app.routes.agents import router as agents_router
 from app.routes.ai_settings import router as ai_settings_router
+from app.routes.auth import router as auth_router
 from app.routes.health import router as health_router
 from app.routes.idea_agents import router as idea_agents_router
 from app.routes.idea_dag import router as idea_dag_router
@@ -25,19 +27,22 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept"],
     )
 
     app.include_router(health_router)
-    app.include_router(workspaces_router)
-    app.include_router(ai_settings_router)
-    app.include_router(ideas_router)
-    app.include_router(idea_agents_router)
-    app.include_router(idea_prd_feedback_router)
-    app.include_router(idea_dag_router)
-    app.include_router(idea_scope_router)
-    app.include_router(agents_router)
+    app.include_router(auth_router)
+
+    protected_dependencies = [] if settings.auth_disabled else [Depends(require_authenticated_user)]
+    app.include_router(workspaces_router, dependencies=protected_dependencies)
+    app.include_router(ai_settings_router, dependencies=protected_dependencies)
+    app.include_router(ideas_router, dependencies=protected_dependencies)
+    app.include_router(idea_agents_router, dependencies=protected_dependencies)
+    app.include_router(idea_prd_feedback_router, dependencies=protected_dependencies)
+    app.include_router(idea_dag_router, dependencies=protected_dependencies)
+    app.include_router(idea_scope_router, dependencies=protected_dependencies)
+    app.include_router(agents_router, dependencies=protected_dependencies)
     return app
 
 

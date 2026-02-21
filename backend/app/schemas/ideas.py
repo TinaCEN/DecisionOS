@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.common import DirectionId, PathId
 from app.schemas.feasibility import FeasibilityInput, FeasibilityOutput
 from app.schemas.idea import OpportunityInput, OpportunityOutput
 from app.schemas.prd import (
@@ -20,15 +19,13 @@ IdeaStatus = Literal["draft", "active", "frozen", "archived"]
 
 
 class DecisionContext(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     session_id: str = Field(min_length=1)
     created_at: str = Field(min_length=1)
     context_schema_version: int = Field(default=1, ge=1)
     idea_seed: str | None = None
     opportunity: OpportunityOutput | None = None
-    selected_direction_id: DirectionId | None = None
-    path_id: PathId | None = None
     feasibility: FeasibilityOutput | None = None
     selected_plan_id: str | None = Field(default=None, min_length=1)
     scope: ScopeOutput | None = None

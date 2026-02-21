@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import tempfile
 import unittest
 
+from pydantic import ValidationError
+from tests._test_env import ensure_required_seed_env
+
 
 class IdeasRepoTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "decisionos-test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
@@ -111,6 +116,30 @@ class IdeasRepoTestCase(unittest.TestCase):
         )
         self.assertEqual(stale_result.kind, "conflict")
 
+    def test_list_ideas_raises_for_invalid_context_payload(self) -> None:
+        created = self.repo.create_idea(title="Legacy PRD", idea_seed="seed")
+
+        from app.db.engine import db_session
+
+        with db_session() as connection:
+            row = connection.execute(
+                "SELECT context_json FROM idea WHERE id = ?",
+                (created.id,),
+            ).fetchone()
+            assert row is not None
+            context_payload = json.loads(str(row["context_json"]))
+            context_payload["prd"] = {
+                "markdown": "# Legacy PRD",
+                "sections": {"problem_statement": "old schema"},
+            }
+            connection.execute(
+                "UPDATE idea SET context_json = ? WHERE id = ?",
+                (json.dumps(context_payload, ensure_ascii=False), created.id),
+            )
+
+        with self.assertRaises(ValidationError):
+            self.repo.list_ideas(statuses=["draft", "active", "frozen"], limit=50)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -128,6 +157,7 @@ from app.db import repo_dag as _repo_dag
 
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path):
+    ensure_required_seed_env()
     os.environ["DECISIONOS_DB_PATH"] = str(tmp_path / "test.db")
     from app.core.settings import get_settings
     get_settings.cache_clear()

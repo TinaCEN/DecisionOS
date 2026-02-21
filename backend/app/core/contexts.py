@@ -26,3 +26,7 @@ def infer_stage_from_context(context: DecisionContext) -> IdeaStage:
     if context.feasibility is not None or context.confirmed_dag_path_id is not None:
         return "feasibility"
     return "idea_canvas"
+
+
+def parse_context_strict(raw_context: object) -> DecisionContext:
+    return DecisionContext.model_validate(raw_context)

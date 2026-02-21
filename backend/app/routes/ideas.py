@@ -7,10 +7,10 @@ from typing import Final, NoReturn, cast
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import ValidationError
 
+from app.core.contexts import parse_context_strict
 from app.db.repo_ideas import IdeaRecord, IdeaRepository, UpdateIdeaResult
 from app.schemas.ideas import (
     CreateIdeaRequest,
-    DecisionContext,
     IdeaDetail,
     IdeaListResponse,
     IdeaStatus,
@@ -73,7 +73,7 @@ async def patch_idea(idea_id: str, payload: PatchIdeaRequest) -> IdeaDetail:
 @router.patch("/{idea_id}/context", response_model=IdeaDetail)
 async def patch_idea_context(idea_id: str, payload: PatchIdeaContextRequest) -> IdeaDetail:
     try:
-        context = DecisionContext.model_validate(payload.context)
+        context = parse_context_strict(payload.context)
     except ValidationError as exc:
         raise HTTPException(
             status_code=422,
@@ -166,7 +166,7 @@ def _to_idea_summary(record: IdeaRecord) -> IdeaSummary:
 def _to_idea_detail(record: IdeaRecord) -> IdeaDetail:
     return IdeaDetail(
         **_to_idea_summary(record).model_dump(),
-        context=DecisionContext.model_validate(record.context),
+        context=parse_context_strict(record.context),
     )
 
 

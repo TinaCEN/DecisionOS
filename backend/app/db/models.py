@@ -47,6 +47,32 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     );
     """,
     """
+    CREATE TABLE IF NOT EXISTS user_account (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS auth_session (
+        token_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES user_account(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_auth_session_user_id
+    ON auth_session(user_id);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_auth_session_expires_at
+    ON auth_session(expires_at);
+    """,
+    """
     CREATE TABLE IF NOT EXISTS idea_nodes (
         id                TEXT PRIMARY KEY,
         idea_id           TEXT NOT NULL REFERENCES idea(id),

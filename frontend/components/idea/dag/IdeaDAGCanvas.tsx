@@ -14,6 +14,8 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import { useDAGStore } from '../../../lib/dag-store'
+import { useIdeasStore } from '../../../lib/ideas-store'
+import { useDecisionStore } from '../../../lib/store'
 import {
   listNodes,
   createRootNode,
@@ -46,10 +48,9 @@ function buildPathChain(nodes: IdeaNode[], targetId: string): string[] {
 
 interface Props {
   ideaId: string
-  ideaSeed: string
 }
 
-export function IdeaDAGCanvas({ ideaId, ideaSeed }: Props) {
+export function IdeaDAGCanvas({ ideaId }: Props) {
   const router = useRouter()
   const {
     nodes: dagNodes,
@@ -126,7 +127,14 @@ export function IdeaDAGCanvas({ ideaId, ideaSeed }: Props) {
       if (existing.length > 0) {
         setNodes(existing)
       } else {
-        const root = await createRootNode(ideaId, ideaSeed)
+        const contextSeed = useDecisionStore.getState().context.idea_seed?.trim()
+        const fallbackIdea = useIdeasStore
+          .getState()
+          .ideas.find((candidate) => candidate.id === ideaId)
+        const fallbackSeed = fallbackIdea?.idea_seed?.trim() || fallbackIdea?.title?.trim()
+        const rootSeed = contextSeed || fallbackSeed || 'Untitled idea'
+
+        const root = await createRootNode(ideaId, rootSeed)
         if (cancelled) return
         setNodes([root])
       }
@@ -137,7 +145,7 @@ export function IdeaDAGCanvas({ ideaId, ideaSeed }: Props) {
     return () => {
       cancelled = true
     }
-  }, [ideaId, ideaSeed, setNodes, setConfirmedPath, reset])
+  }, [ideaId, setNodes, setConfirmedPath, reset])
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: DAGNodeType) => {

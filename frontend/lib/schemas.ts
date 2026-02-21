@@ -276,8 +276,6 @@ export const decisionContextSchema = z.object({
   context_schema_version: z.number().int().positive().optional(),
   idea_seed: z.string().min(1).optional(),
   opportunity: opportunityOutputSchema.optional(),
-  selected_direction_id: directionIdSchema.optional(),
-  path_id: pathIdSchema.optional(),
   feasibility: feasibilityOutputSchema.optional(),
   selected_plan_id: z.string().min(1).optional(),
   scope: scopeOutputSchema.optional(),
@@ -359,6 +357,24 @@ export const testAiProviderResponseSchema = z.object({
   message: z.string().min(1),
 })
 
+export const authUserSchema = z.object({
+  id: z.string().min(1),
+  username: z.string().min(1),
+  role: z.enum(['admin', 'user']),
+})
+
+export const authLoginRequestSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+})
+
+export const authLoginResponseSchema = z.object({
+  access_token: z.string().min(1),
+  token_type: z.literal('bearer'),
+  expires_in: z.number().int().positive(),
+  user: authUserSchema,
+})
+
 export type DirectionId = z.infer<typeof directionIdSchema>
 export type PathId = z.infer<typeof pathIdSchema>
 export type Priority = z.infer<typeof prioritySchema>
@@ -416,3 +432,6 @@ export type AISettings = z.infer<typeof aiSettingsSchema>
 export type PatchAISettingsRequest = z.infer<typeof patchAiSettingsRequestSchema>
 export type TestAIProviderRequest = z.infer<typeof testAiProviderRequestSchema>
 export type TestAIProviderResponse = z.infer<typeof testAiProviderResponseSchema>
+export type AuthUser = z.infer<typeof authUserSchema>
+export type AuthLoginRequest = z.infer<typeof authLoginRequestSchema>
+export type AuthLoginResponse = z.infer<typeof authLoginResponseSchema>

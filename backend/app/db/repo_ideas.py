@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from typing import Literal, cast
 from uuid import uuid4
 
-from app.core.contexts import create_default_context, infer_stage_from_context
+from app.core.contexts import (
+    create_default_context,
+    infer_stage_from_context,
+    parse_context_strict,
+)
 from app.core.time import utc_now_iso
 from app.db.bootstrap import DEFAULT_WORKSPACE_ID
 from app.db.engine import db_session
@@ -203,7 +207,7 @@ class IdeaRepository:
         return self._update_context_internal(
             idea_id,
             version=version,
-            mutate_context=lambda _: DecisionContext.model_validate(context),
+            mutate_context=lambda _: parse_context_strict(context),
             require_not_archived=False,
         )
 
@@ -238,7 +242,9 @@ class IdeaRepository:
             if require_not_archived and status == "archived":
                 return UpdateIdeaResult(kind="archived")
 
-            current_context = DecisionContext.model_validate(json.loads(str(existing["context_json"])))
+            current_context = parse_context_strict(
+                json.loads(str(existing["context_json"]))
+            )
             next_context_model = mutate_context(current_context.model_copy(deep=True))
             next_context = next_context_model.model_dump(mode="python", exclude_none=True)
             next_stage = infer_stage_from_context(next_context_model)
@@ -281,8 +287,8 @@ def _select_idea_row(connection: sqlite3.Connection, idea_id: str) -> sqlite3.Ro
 
 
 def _row_to_idea(row: sqlite3.Row) -> IdeaRecord:
-    context_payload = json.loads(str(row["context_json"]))
-    validated_context = DecisionContext.model_validate(context_payload)
+    raw_context = json.loads(str(row["context_json"]))
+    validated_context = parse_context_strict(raw_context)
 
     return IdeaRecord(
         id=str(row["id"]),

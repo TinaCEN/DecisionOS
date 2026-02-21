@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from app.core import llm
+from app.core.contexts import parse_context_strict
 from app.core.time import utc_now_iso
 from app.db import repo_dag
 from app.db.repo_ideas import IdeaRepository, UpdateIdeaResult
@@ -100,7 +101,7 @@ async def post_prd(idea_id: str, payload: PRDIdeaRequest) -> PRDAgentResponse:
     pack = _build_prd_context_pack(
         idea_id=idea_id,
         baseline_id=payload.baseline_id,
-        context=DecisionContext.model_validate(idea.context),
+        context=parse_context_strict(idea.context),
     )
     fingerprint = _context_pack_fingerprint(pack)
     try:
@@ -404,8 +405,6 @@ def _apply_opportunity(
 ) -> DecisionContext:
     context.idea_seed = payload.idea_seed
     context.opportunity = output
-    context.selected_direction_id = None
-    context.path_id = None
     context.feasibility = None
     context.selected_plan_id = None
     context.scope = None

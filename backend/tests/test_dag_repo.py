@@ -4,9 +4,12 @@ import os
 import tempfile
 import unittest
 
+from tests._test_env import ensure_required_seed_env
+
 
 class DagRepoTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path

@@ -6,9 +6,11 @@ from app.core.time import utc_now_iso
 from app.db.engine import db_session
 from app.db.models import SCHEMA_STATEMENTS
 from app.db.repo_ai import ensure_default_ai_settings
+from app.db.repo_auth import AuthRepository
 
 DEFAULT_WORKSPACE_ID = "default"
 DEFAULT_WORKSPACE_NAME = "Default Workspace"
+_auth_repo = AuthRepository()
 
 
 def initialize_database() -> None:
@@ -17,6 +19,7 @@ def initialize_database() -> None:
             connection.execute(statement)
         ensure_default_workspace(connection)
         ensure_default_ai_settings(connection)
+        _auth_repo.ensure_seed_users(connection)
 
 
 def ensure_default_workspace(connection: sqlite3.Connection) -> None:

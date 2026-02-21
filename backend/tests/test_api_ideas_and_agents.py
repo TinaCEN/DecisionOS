@@ -8,13 +8,17 @@ import unittest
 from dataclasses import dataclass
 from unittest.mock import patch
 
+from tests._test_env import ensure_required_seed_env
+
 
 class IdeasAndAgentsApiTestCase(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "decisionos-api-test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
         os.environ["LLM_MODE"] = "mock"
+        os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
 
         from app.core.settings import get_settings
         from app.main import create_app
@@ -488,8 +492,8 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         self.assertEqual(final_detail["context"]["selected_plan_id"], selected_plan_id)
         self.assertEqual(final_detail["context"]["prd_bundle"]["baseline_id"], baseline_id)
         self.assertEqual(final_detail["context"]["prd_bundle"]["output"]["backlog"]["items"][0]["id"], "BL-1")
-        self.assertIsNone(final_detail["context"]["selected_direction_id"])
-        self.assertIsNone(final_detail["context"]["path_id"])
+        self.assertNotIn("selected_direction_id", final_detail["context"])
+        self.assertNotIn("path_id", final_detail["context"])
 
     def test_prd_context_pack_requires_selected_plan(self) -> None:
         idea_id, version = self._create_idea("PRD Selected Plan Required")
@@ -624,8 +628,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         from app.main import create_app
 
         old_mode = os.environ.get("LLM_MODE")
+        old_auth_disabled = os.environ.get("DECISIONOS_AUTH_DISABLED")
         old_client = self.client
         os.environ["LLM_MODE"] = "auto"
+        os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
         get_settings.cache_clear()
         self.client = _AsgiTestClient(create_app())
         try:
@@ -645,6 +651,10 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
                 os.environ.pop("LLM_MODE", None)
             else:
                 os.environ["LLM_MODE"] = old_mode
+            if old_auth_disabled is None:
+                os.environ.pop("DECISIONOS_AUTH_DISABLED", None)
+            else:
+                os.environ["DECISIONOS_AUTH_DISABLED"] = old_auth_disabled
             get_settings.cache_clear()
             self.client = old_client
 
