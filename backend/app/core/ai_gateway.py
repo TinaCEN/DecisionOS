@@ -91,18 +91,7 @@ def _invoke_provider_text(*, provider: AIProviderConfig, user_prompt: str) -> st
         timeout_seconds=provider.timeout_seconds,
         api_key=provider.api_key,
     )
-    if not isinstance(decoded, dict):
-        raise RuntimeError("Provider response is not an object")
-    choices = decoded.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise RuntimeError("Provider response missing choices")
-    message = choices[0].get("message", {})
-    content = message.get("content", "")
-    if isinstance(content, list):
-        content = "\n".join(
-            item["text"] for item in content if isinstance(item, dict) and item.get("type") == "text"
-        )
-    return str(content)
+    return _extract_content_from_choices(decoded)
 
 
 def test_provider_connection(provider: AIProviderConfig) -> tuple[bool, int, str]:
@@ -217,6 +206,45 @@ def _call_generic_json_provider(
     return cast(dict[str, object], decoded)
 
 
+def _extract_content_from_choices(decoded: object) -> str:
+    if not isinstance(decoded, dict):
+        raise RuntimeError("Provider response is not an object")
+    choices = decoded.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError("Provider response missing choices")
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise RuntimeError("Provider response has invalid first choice")
+    message = first.get("message")
+    if not isinstance(message, dict):
+        raise RuntimeError("Provider response missing message object")
+    content = message.get("content")
+    if isinstance(content, dict):
+        return json.dumps(content)
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
+                text_parts.append(item["text"])
+        content = "\n".join(text_parts)
+    if not isinstance(content, str):
+        raise RuntimeError("Provider response content is not JSON text")
+    return content
+
+
+def _parse_json_from_content(content: str) -> dict[str, object]:
+    text = content.strip()
+    # Strip markdown code fences if present
+    if text.startswith("```"):
+        lines = text.splitlines()
+        inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+        text = "\n".join(inner)
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Provider response content is not a JSON object")
+    return cast(dict[str, object], parsed)
+
+
 def _call_openai_compatible_provider(
     *,
     provider: AIProviderConfig,
@@ -227,8 +255,11 @@ def _call_openai_compatible_provider(
     if not endpoint.endswith("/chat/completions"):
         endpoint = f"{endpoint}/chat/completions"
 
+    model = provider.model or "gpt-4o-mini"
+
+    # First attempt: use json_schema structured output (supported by GPT-4o etc.)
     body: dict[str, object] = {
-        "model": provider.model or "gpt-4o-mini",
+        "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
@@ -242,46 +273,47 @@ def _call_openai_compatible_provider(
             },
         },
     }
-    logger.debug("_call_openai_compatible_provider url=%s model=%s", endpoint, body["model"])
+    logger.debug("_call_openai_compatible_provider url=%s model=%s (json_schema)", endpoint, model)
+    try:
+        decoded = _post_json(
+            url=endpoint,
+            body=body,
+            timeout_seconds=provider.timeout_seconds,
+            api_key=provider.api_key,
+        )
+        content = _extract_content_from_choices(decoded)
+        return _parse_json_from_content(content)
+    except Exception as exc:
+        logger.warning(
+            "_call_openai_compatible_provider json_schema failed (%s), retrying with plain prompt", exc
+        )
+
+    # Fallback: plain prompt asking for JSON (for models that don't support response_format)
+    # Include schema to guide field names, but keep it compact
+    schema_str = json.dumps(response_schema, ensure_ascii=False, separators=(",", ":"))
+    fallback_prompt = (
+        f"{user_prompt}\n\n"
+        "IMPORTANT: Your response MUST be a single valid JSON object only — "
+        "no markdown, no code fences, no explanations, no text before or after the JSON. "
+        f"Use exactly these field names as defined in this JSON Schema: {schema_str}"
+    )
+    fallback_body: dict[str, object] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": fallback_prompt},
+        ],
+        "temperature": provider.temperature,
+    }
+    logger.debug("_call_openai_compatible_provider url=%s model=%s (plain prompt fallback)", endpoint, model)
     decoded = _post_json(
         url=endpoint,
-        body=body,
+        body=fallback_body,
         timeout_seconds=provider.timeout_seconds,
         api_key=provider.api_key,
     )
-
-    if not isinstance(decoded, dict):
-        raise RuntimeError("Provider response is not an object")
-
-    choices = decoded.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise RuntimeError("Provider response missing choices")
-
-    first = choices[0]
-    if not isinstance(first, dict):
-        raise RuntimeError("Provider response has invalid first choice")
-
-    message = first.get("message")
-    if not isinstance(message, dict):
-        raise RuntimeError("Provider response missing message object")
-
-    content = message.get("content")
-    if isinstance(content, dict):
-        return cast(dict[str, object], content)
-    if isinstance(content, list):
-        text_parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
-                text_parts.append(item["text"])
-        content = "\n".join(text_parts)
-
-    if not isinstance(content, str):
-        raise RuntimeError("Provider response content is not JSON text")
-
-    parsed = json.loads(content)
-    if not isinstance(parsed, dict):
-        raise RuntimeError("Provider response content is not a JSON object")
-    return cast(dict[str, object], parsed)
+    content = _extract_content_from_choices(decoded)
+    return _parse_json_from_content(content)
 
 
 def _post_json(

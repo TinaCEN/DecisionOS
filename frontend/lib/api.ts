@@ -23,20 +23,23 @@ import type {
 } from './schemas'
 import { clearAuthSession, getAccessToken } from './auth'
 
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000'
-
 const resolveRuntimeApiBaseUrl = (): string => {
   if (process.env.NEXT_PUBLIC_API_BASE_URL) {
     return process.env.NEXT_PUBLIC_API_BASE_URL
   }
 
+  // Use Next.js rewrite proxy in browser to avoid CORS.
+  // Falls back to direct URL for SSR (server-to-server, no CORS).
   if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:8000`
+    return '/api-proxy'
   }
 
-  return DEFAULT_API_BASE_URL
+  return 'http://127.0.0.1:8000'
 }
 
+export const getApiBaseUrl = (): string => resolveRuntimeApiBaseUrl()
+
+/** @deprecated use getApiBaseUrl() for browser-safe lazy evaluation */
 export const apiBaseUrl = resolveRuntimeApiBaseUrl()
 
 export class ApiError extends Error {
@@ -90,7 +93,7 @@ export const buildApiUrl = (path: string): string => {
     return path
   }
 
-  return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
+  return `${getApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`
 }
 
 export const withAuthHeaders = (headers?: HeadersInit): Headers => {

@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
@@ -304,25 +305,46 @@ async def stream_opportunity(idea_id: str, payload: OpportunityIdeaRequest) -> E
 @router.post("/feasibility/stream")
 async def stream_feasibility(idea_id: str, payload: FeasibilityIdeaRequest) -> EventSourceResponse:
     _logger.info("agent.feasibility.stream.start idea_id=%s version=%s", idea_id, payload.version)
-    try:
-        output = llm.generate_feasibility(payload)
-    except Exception as exc:
-        _raise_if_no_provider(exc)
-        _logger.exception(
-            "agent.feasibility.stream.failed idea_id=%s version=%s code=UNHANDLED_ERROR",
-            idea_id,
-            payload.version,
-        )
-        raise
 
     async def event_generator() -> AsyncIterator[dict[str, str]]:
         yield _sse_event("progress", {"step": "received_request", "pct": 5})
 
-        for index, plan in enumerate(output.plans, start=1):
-            await asyncio.sleep(0.2)
-            pct = 20 + index * 25
-            yield _sse_event("progress", {"step": f"plan_{index}", "pct": min(95, pct)})
-            yield _sse_event("partial", {"plan": _plan_payload(plan)})
+        loop = asyncio.get_running_loop()
+
+        # Launch all 3 plan requests concurrently in a thread pool (LLM calls are blocking I/O)
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = [
+                loop.run_in_executor(pool, llm.generate_single_plan, payload, i)
+                for i in range(3)
+            ]
+
+            plans: list[object] = [None, None, None]  # preserve slot order for context save
+            completed = 0
+
+            for coro in asyncio.as_completed(futures):
+                try:
+                    plan = await coro
+                    # Find which slot this plan belongs to by matching plan_index hint in id
+                    # Since as_completed returns in arrival order, track by slot via plan object
+                    slot = next(
+                        (i for i, p in enumerate(plans) if p is None),
+                        completed,
+                    )
+                    plans[slot] = plan
+                    completed += 1
+                    pct = 20 + completed * 25
+                    yield _sse_event("progress", {"step": f"plan_{completed}", "pct": min(90, pct)})
+                    yield _sse_event("partial", {"plan": _plan_payload(plan)})
+                except Exception as exc:
+                    _raise_if_no_provider(exc)
+                    _logger.exception(
+                        "agent.feasibility.stream.plan_failed idea_id=%s", idea_id, exc_info=exc
+                    )
+                    yield _sse_event("error", {"code": "PLAN_GENERATION_FAILED", "message": "Failed to generate one of the plans"})
+                    return
+
+        from app.schemas.feasibility import FeasibilityOutput, Plan
+        output = FeasibilityOutput(plans=[p for p in plans if p is not None])  # type: ignore[arg-type]
 
         result = _repo.apply_agent_update(
             idea_id,

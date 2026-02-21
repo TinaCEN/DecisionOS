@@ -259,6 +259,9 @@ export function FeasibilityPage() {
     )
   }
 
+  const showSkeletons = loading && plans.length < 3
+  const showEmptyState = !loading && plans.length === 0
+
   return (
     <main className="mx-auto w-full max-w-6xl p-6">
       <h1 className="text-2xl font-bold">Feasibility</h1>
@@ -280,16 +283,26 @@ export function FeasibilityPage() {
           {loading ? 'Generating...' : plans.length ? 'Regenerate Plans' : 'Generate Plans'}
         </button>
       </div>
-      {loading ? <p className="mt-2 text-xs text-black/60">Streaming {progressPct}%</p> : null}
+      {loading && plans.length > 0 ? (
+        <p className="mt-2 text-xs text-black/60">
+          {plans.length}/3 plans ready · Streaming {progressPct}%
+        </p>
+      ) : loading ? (
+        <p className="mt-2 text-xs text-black/60">Streaming {progressPct}%</p>
+      ) : null}
       {errorMessage ? <p className="mt-2 text-xs text-red-600">{errorMessage}</p> : null}
-      {plans.length ? (
-        <div className="mt-4">
-          <PlanCards plans={plans} selectedPlanId={context.selected_plan_id} />
-        </div>
-      ) : (
+      {showEmptyState ? (
         <section className="mt-4 rounded-xl border border-dashed border-black/30 p-6 text-sm text-black/60">
-          {loading ? 'Generating feasibility plans...' : 'Click "Generate Plans" to start.'}
+          Click &quot;Generate Plans&quot; to start.
         </section>
+      ) : (
+        <div className="mt-4">
+          <PlanCards
+            plans={plans}
+            selectedPlanId={context.selected_plan_id}
+            loadingSlots={showSkeletons ? 3 : 0}
+          />
+        </div>
       )}
     </main>
   )

@@ -51,6 +51,47 @@ def build_feasibility_prompt(
     )
 
 
+_SINGLE_PLAN_ARCHETYPES = [
+    "a bootstrapped / capital-light approach",
+    "a VC-funded / growth-first approach",
+    "a platform / ecosystem / partner-led approach",
+]
+
+
+def build_single_plan_prompt(
+    *,
+    idea_seed: str,
+    confirmed_node_content: str,
+    confirmed_path_summary: str | None,
+    plan_index: int,
+) -> str:
+    """Build a prompt that asks the model for exactly ONE feasibility plan.
+
+    plan_index is 0-based (0, 1, 2). Each call gets a different archetype hint
+    to ensure the three concurrent plans are meaningfully distinct.
+    """
+    archetype = _SINGLE_PLAN_ARCHETYPES[plan_index % len(_SINGLE_PLAN_ARCHETYPES)]
+    context = (
+        f"confirmed_node_content={confirmed_node_content!r}\n"
+        f"confirmed_path_summary={confirmed_path_summary!r}\n"
+        f"idea_seed={idea_seed!r}\n"
+    )
+    return (
+        "Given the following product context, generate exactly ONE detailed feasibility plan "
+        f"following {archetype}.\n\n"
+        f"{context}\n"
+        "The plan MUST include:\n"
+        '  - id: a short unique slug (e.g. "plan1", "plan2", "plan3")\n'
+        "  - name: concise plan name\n"
+        "  - summary: one-sentence value proposition\n"
+        "  - score_overall: float 0-10\n"
+        "  - scores: object with keys technical_feasibility, market_viability, execution_risk (each float 0-10)\n"
+        "  - reasoning: object with keys technical_feasibility, market_viability, execution_risk (each a short string)\n"
+        "  - recommended_positioning: one sentence on go-to-market positioning\n"
+        "Return a single JSON object representing this plan (not wrapped in an array or 'plans' key)."
+    )
+
+
 def build_scope_prompt(
     *,
     idea_seed: str,
