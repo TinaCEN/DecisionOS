@@ -24,17 +24,16 @@ import type {
 import { clearAuthSession, getAccessToken } from './auth'
 
 const resolveRuntimeApiBaseUrl = (): string => {
-  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL
-  }
-
-  // Use Next.js rewrite proxy in browser to avoid CORS.
-  // Falls back to direct URL for SSR (server-to-server, no CORS).
+  // Browser: always use the Next.js rewrite proxy to avoid CORS.
+  // NEXT_PUBLIC_API_BASE_URL is intentionally NOT used in the browser;
+  // all browser traffic routes through /api-proxy → Next.js server → backend.
   if (typeof window !== 'undefined') {
     return '/api-proxy'
   }
 
-  return 'http://127.0.0.1:8000'
+  // SSR / server actions: call the backend directly (server-to-server, no CORS).
+  // API_INTERNAL_URL is set to http://api:8000 inside Docker, falls back to local default.
+  return process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:8000'
 }
 
 export const getApiBaseUrl = (): string => resolveRuntimeApiBaseUrl()
