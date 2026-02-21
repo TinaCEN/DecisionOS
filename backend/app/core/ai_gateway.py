@@ -27,7 +27,9 @@ def _get_active_provider() -> AIProviderConfig:
     settings = _settings_repo.get_settings().config
     enabled = [p for p in settings.providers if p.enabled]
     if not enabled:
-        raise RuntimeError("No enabled AI provider configured. Visit Settings to enable one.")
+        raise RuntimeError(
+            "No AI provider configured. Please go to Settings → AI Provider to add and enable one."
+        )
     return enabled[0]
 
 

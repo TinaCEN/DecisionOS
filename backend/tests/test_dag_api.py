@@ -12,13 +12,20 @@ from urllib.parse import urlsplit
 from tests._test_env import ensure_required_seed_env
 
 
+_MOCK_EXPAND_NODES = [
+    {"content": "Child node A", "edge_label": "方向A"},
+    {"content": "Child node B", "edge_label": "方向B"},
+]
+
+_MOCK_PATH_SUMMARY = "Mock path summary for testing."
+
+
 class DagApiTestCase(unittest.TestCase):
     def setUp(self) -> None:
         ensure_required_seed_env()
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
-        os.environ["LLM_MODE"] = "mock"
         os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
 
         from app.core.settings import get_settings
@@ -27,7 +34,27 @@ class DagApiTestCase(unittest.TestCase):
         get_settings.cache_clear()
         self.client = _AsgiTestClient(create_app())
 
+        # Patch LLM calls so tests don't require a real AI provider
+        self._patch_expand_user = patch(
+            "app.core.llm.generate_expand_node_user",
+            return_value=_MOCK_EXPAND_NODES,
+        )
+        self._patch_expand_nodes = patch(
+            "app.core.llm.generate_expand_nodes",
+            return_value=_MOCK_EXPAND_NODES,
+        )
+        self._patch_path_summary = patch(
+            "app.core.llm.generate_path_summary",
+            return_value=_MOCK_PATH_SUMMARY,
+        )
+        self._patch_expand_user.start()
+        self._patch_expand_nodes.start()
+        self._patch_path_summary.start()
+
     def tearDown(self) -> None:
+        self._patch_expand_user.stop()
+        self._patch_expand_nodes.stop()
+        self._patch_path_summary.stop()
         self._tmpdir.cleanup()
 
     def _create_idea(self) -> str:

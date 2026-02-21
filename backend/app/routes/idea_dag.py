@@ -24,6 +24,19 @@ _repo = IdeaRepository()
 logger = logging.getLogger(__name__)
 
 
+def _raise_if_no_provider(exc: Exception) -> None:
+    """Re-raise RuntimeError from missing AI provider as HTTP 503."""
+    msg = str(exc)
+    if isinstance(exc, RuntimeError) and "No AI provider" in msg:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "AI_PROVIDER_NOT_CONFIGURED",
+                "message": msg,
+            },
+        ) from exc
+
+
 def _require_idea(idea_id: str) -> None:
     idea = _repo.get_idea(idea_id)
     if idea is None:
@@ -114,9 +127,16 @@ async def expand_user(
         )
     chain = [node_id]
     summary = _chain_summary(idea_id, chain)
-    children_data = llm.generate_expand_node_user(
-        parent.content, body.description, summary
-    )
+    try:
+        children_data = llm.generate_expand_node_user(
+            parent.content, body.description, summary
+        )
+    except Exception as exc:
+        _raise_if_no_provider(exc)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "EXPAND_FAILED", "message": "Failed to expand node"},
+        ) from exc
     results: list[IdeaNodeOut] = []
     for child in children_data:
         node = repo_dag.create_node(
@@ -186,8 +206,9 @@ async def expand_stream(idea_id: str, node_id: str, pattern_id: str) -> Streamin
                 pattern_id,
                 exc_info=exc,
             )
+            msg = str(exc) if "No AI provider" in str(exc) else "Failed to expand node"
             yield _evt(
-                "error", {"code": "EXPAND_FAILED", "message": "Failed to expand node"}
+                "error", {"code": "AI_PROVIDER_NOT_CONFIGURED" if "No AI provider" in str(exc) else "EXPAND_FAILED", "message": msg}
             )  # type: ignore[misc]
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")  # type: ignore[arg-type]
@@ -233,7 +254,14 @@ async def confirm_path(idea_id: str, body: ConfirmPathRequest) -> IdeaPathOut:
     chain_text = " → ".join(
         nodes[nid].content for nid in body.node_chain if nid in nodes
     )
-    summary = llm.generate_path_summary(chain_text)
+    try:
+        summary = llm.generate_path_summary(chain_text)
+    except Exception as exc:
+        _raise_if_no_provider(exc)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "PATH_SUMMARY_FAILED", "message": "Failed to generate path summary"},
+        ) from exc
     lines.append(f"## 演进摘要\n{summary}\n")
     path_md = "\n".join(lines)
 

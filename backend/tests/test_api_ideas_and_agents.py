@@ -10,6 +10,125 @@ from unittest.mock import patch
 
 from tests._test_env import ensure_required_seed_env
 
+_DIR_IDS = ["A", "B", "C", "D", "E", "F"]
+
+
+def _mock_opportunity(payload: object) -> object:
+    """Return an OpportunityOutput with exactly payload.count directions."""
+    from app.schemas.common import Direction
+    from app.schemas.idea import OpportunityOutput
+
+    count = getattr(payload, "count", 3)
+    return OpportunityOutput(
+        directions=[
+            Direction(
+                id=_DIR_IDS[i],
+                title=f"Direction {_DIR_IDS[i]}",
+                one_liner=f"One-liner for direction {_DIR_IDS[i]}",
+                pain_tags=["tag1"],
+            )
+            for i in range(count)
+        ]
+    )
+
+
+def _mock_feasibility(payload: object) -> object:
+    from app.schemas.common import ReasoningBreakdown, ScoreBreakdown
+    from app.schemas.feasibility import FeasibilityOutput, Plan
+
+    def _plan(idx: int) -> Plan:
+        pid = f"plan{idx}"
+        return Plan(
+            id=pid,
+            name=f"Plan {idx}",
+            summary=f"Summary for plan {idx}",
+            score_overall=8.0 - idx * 0.5,
+            scores=ScoreBreakdown(
+                technical_feasibility=8.0,
+                market_viability=8.0,
+                execution_risk=7.5,
+            ),
+            reasoning=ReasoningBreakdown(
+                technical_feasibility="tech",
+                market_viability="market",
+                execution_risk="risk",
+            ),
+            recommended_positioning=f"Position {idx}",
+        )
+
+    return FeasibilityOutput(plans=[_plan(1), _plan(2), _plan(3)])
+
+
+def _mock_scope(payload: object) -> object:
+    from app.schemas.scope import InScopeItem, OutScopeItem, ScopeOutput
+
+    return ScopeOutput(
+        in_scope=[
+            InScopeItem(id="in-1", title="Feature A", desc="Core feature", priority="P0"),
+            InScopeItem(id="in-2", title="Feature B", desc="Secondary feature", priority="P1"),
+        ],
+        out_scope=[
+            OutScopeItem(id="out-1", title="Feature X", desc="Nice to have", reason="deferred"),
+        ],
+    )
+
+
+def _mock_prd(context_pack: object) -> object:
+    from app.schemas.prd import (
+        PRDBacklog,
+        PRDBacklogItem,
+        PRDGenerationMeta,
+        PRDOutput,
+        PRDRequirement,
+        PRDSection,
+    )
+
+    req_ids = [f"REQ-{i}" for i in range(1, 7)]
+    requirements = [
+        PRDRequirement(
+            id=req_id,
+            title=f"Requirement {req_id}",
+            description=f"Description for {req_id}",
+            rationale=f"Rationale for {req_id}",
+            acceptance_criteria=["AC1", "AC2"],
+            source_refs=["step2"],
+        )
+        for req_id in req_ids
+    ]
+    backlog_items = [
+        PRDBacklogItem(
+            id=f"BL-{i}",
+            title=f"Backlog Item {i}",
+            requirement_id=req_ids[(i - 1) % len(req_ids)],
+            priority="P1",
+            type="story",
+            summary=f"Summary for item {i}",
+            acceptance_criteria=["AC1", "AC2"],
+            source_refs=["step3"],
+        )
+        for i in range(1, 9)
+    ]
+    from app.schemas.prd import PrdContextPack
+
+    pack: PrdContextPack = context_pack  # type: ignore[assignment]
+    meta = PRDGenerationMeta(
+        provider_id="mock",
+        model="mock-model",
+        confirmed_path_id=pack.step2_path.path_id,
+        selected_plan_id=pack.step3_feasibility.selected_plan.id,
+        baseline_id=pack.step4_scope.baseline_meta.baseline_id,
+    )
+    return PRDOutput(
+        markdown="# PRD\n\nMock PRD content.",
+        sections=[
+            PRDSection(id=f"sec-{i}", title=f"Section {i}", content=f"Content {i}")
+            for i in range(1, 7)
+        ],
+        requirements=requirements,
+        backlog=PRDBacklog(items=backlog_items),
+        generation_meta=meta,
+    )
+
 
 class IdeasAndAgentsApiTestCase(unittest.TestCase):
     def setUp(self) -> None:
@@ -17,7 +136,6 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         db_path = os.path.join(self._tmpdir.name, "decisionos-api-test.db")
         os.environ["DECISIONOS_DB_PATH"] = db_path
-        os.environ["LLM_MODE"] = "mock"
         os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
 
         from app.core.settings import get_settings
@@ -25,9 +143,37 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
 
         get_settings.cache_clear()
         self.client = _AsgiTestClient(create_app())
+
+        # Patch all LLM calls so tests don't require a real AI provider
+        self._patch_opportunity = patch(
+            "app.core.llm.generate_opportunity", side_effect=_mock_opportunity
+        )
+        self._patch_feasibility = patch(
+            "app.core.llm.generate_feasibility", side_effect=_mock_feasibility
+        )
+        self._patch_scope = patch(
+            "app.core.llm.generate_scope", side_effect=_mock_scope
+        )
+        self._patch_prd = patch(
+            "app.core.llm.generate_prd_strict", side_effect=_mock_prd
+        )
+        self._patch_path_summary = patch(
+            "app.core.llm.generate_path_summary", return_value="Mock path summary."
+        )
+        self._patch_opportunity.start()
+        self._patch_feasibility.start()
+        self._patch_scope.start()
+        self._patch_prd.start()
+        self._patch_path_summary.start()
+
         self.idea_id, _ = self._create_idea("Delete Test Idea")
 
     def tearDown(self) -> None:
+        self._patch_opportunity.stop()
+        self._patch_feasibility.stop()
+        self._patch_scope.stop()
+        self._patch_prd.stop()
+        self._patch_path_summary.stop()
         self._tmpdir.cleanup()
 
     def _create_idea(self, title: str) -> tuple[str, int]:
@@ -703,39 +849,22 @@ class IdeasAndAgentsApiTestCase(unittest.TestCase):
         self.assertEqual(prd["detail"]["code"], "PRD_CONFIRMED_PATH_REQUIRED")
 
     def test_prd_generation_failed_in_non_mock_returns_502(self) -> None:
-        from app.core.settings import get_settings
-        from app.main import create_app
+        from app.core.llm import PRDGenerationError
 
-        old_mode = os.environ.get("LLM_MODE")
-        old_auth_disabled = os.environ.get("DECISIONOS_AUTH_DISABLED")
-        old_client = self.client
-        os.environ["LLM_MODE"] = "auto"
-        os.environ["DECISIONOS_AUTH_DISABLED"] = "1"
-        get_settings.cache_clear()
-        self.client = _AsgiTestClient(create_app())
-        try:
-            idea_id, version = self._create_idea("PRD Strict Failure")
-            baseline_id, ready_version, _ = self._prepare_prd_baseline(idea_id, version=version)
-            with patch("app.core.ai_gateway.generate_structured", side_effect=RuntimeError("provider down")):
-                prd_status, prd = self._generate_prd(
-                    idea_id,
-                    version=ready_version,
-                    baseline_id=baseline_id,
-                )
-            self.assertEqual(prd_status, 502)
-            assert prd is not None
-            self.assertEqual(prd["detail"]["code"], "PRD_GENERATION_FAILED")
-        finally:
-            if old_mode is None:
-                os.environ.pop("LLM_MODE", None)
-            else:
-                os.environ["LLM_MODE"] = old_mode
-            if old_auth_disabled is None:
-                os.environ.pop("DECISIONOS_AUTH_DISABLED", None)
-            else:
-                os.environ["DECISIONOS_AUTH_DISABLED"] = old_auth_disabled
-            get_settings.cache_clear()
-            self.client = old_client
+        idea_id, version = self._create_idea("PRD Strict Failure")
+        baseline_id, ready_version, _ = self._prepare_prd_baseline(idea_id, version=version)
+        with patch(
+            "app.core.llm.generate_prd_strict",
+            side_effect=PRDGenerationError("provider down"),
+        ):
+            prd_status, prd = self._generate_prd(
+                idea_id,
+                version=ready_version,
+                baseline_id=baseline_id,
+            )
+        self.assertEqual(prd_status, 502)
+        assert prd is not None
+        self.assertEqual(prd["detail"]["code"], "PRD_GENERATION_FAILED")
 
     def test_prd_feedback_latest_only_and_version_guard(self) -> None:
         idea_id, version = self._create_idea("PRD Feedback Latest")

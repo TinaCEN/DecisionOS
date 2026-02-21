@@ -46,6 +46,19 @@ _scope_repo = ScopeRepository()
 _logger = logging.getLogger(__name__)
 
 
+def _raise_if_no_provider(exc: Exception) -> None:
+    """Re-raise RuntimeError from missing AI provider as HTTP 503."""
+    msg = str(exc)
+    if isinstance(exc, RuntimeError) and "No AI provider" in msg:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "AI_PROVIDER_NOT_CONFIGURED",
+                "message": msg,
+            },
+        ) from exc
+
+
 def _sse_event(event: str, payload: dict[str, object]) -> dict[str, str]:
     return {"event": event, "data": json.dumps(payload, ensure_ascii=False)}
 
@@ -69,7 +82,8 @@ async def post_opportunity(idea_id: str, payload: OpportunityIdeaRequest) -> Opp
             _http_error_code(exc),
         )
         raise
-    except Exception:
+    except Exception as exc:
+        _raise_if_no_provider(exc)
         _logger.exception(
             "agent.opportunity.failed idea_id=%s version=%s code=UNHANDLED_ERROR",
             idea_id,
@@ -99,7 +113,8 @@ async def post_feasibility(idea_id: str, payload: FeasibilityIdeaRequest) -> Fea
             _http_error_code(exc),
         )
         raise
-    except Exception:
+    except Exception as exc:
+        _raise_if_no_provider(exc)
         _logger.exception(
             "agent.feasibility.failed idea_id=%s version=%s code=UNHANDLED_ERROR",
             idea_id,
@@ -129,7 +144,8 @@ async def post_scope(idea_id: str, payload: ScopeIdeaRequest) -> ScopeAgentRespo
             _http_error_code(exc),
         )
         raise
-    except Exception:
+    except Exception as exc:
+        _raise_if_no_provider(exc)
         _logger.exception(
             "agent.scope.failed idea_id=%s version=%s code=UNHANDLED_ERROR",
             idea_id,
@@ -232,7 +248,8 @@ async def stream_opportunity(idea_id: str, payload: OpportunityIdeaRequest) -> E
     _logger.info("agent.opportunity.stream.start idea_id=%s version=%s", idea_id, payload.version)
     try:
         output = llm.generate_opportunity(payload)
-    except Exception:
+    except Exception as exc:
+        _raise_if_no_provider(exc)
         _logger.exception(
             "agent.opportunity.stream.failed idea_id=%s version=%s code=UNHANDLED_ERROR",
             idea_id,
@@ -289,7 +306,8 @@ async def stream_feasibility(idea_id: str, payload: FeasibilityIdeaRequest) -> E
     _logger.info("agent.feasibility.stream.start idea_id=%s version=%s", idea_id, payload.version)
     try:
         output = llm.generate_feasibility(payload)
-    except Exception:
+    except Exception as exc:
+        _raise_if_no_provider(exc)
         _logger.exception(
             "agent.feasibility.stream.failed idea_id=%s version=%s code=UNHANDLED_ERROR",
             idea_id,
