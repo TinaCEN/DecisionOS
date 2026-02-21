@@ -1,203 +1,247 @@
-# DecisionOS MVP
+# DecisionOS
 
-This repository now contains a DecisionOS hackathon MVP scaffold defined by `AGENTS.md`.
+A single-user, single-workspace decision management system for product ideas. DecisionOS guides you through a structured workflow from initial idea to production-ready PRD.
 
-## Structure
+## Overview
+
+DecisionOS helps product managers and indie hackers make better decisions by providing a structured framework for:
+
+- **Exploring ideas** via an interactive DAG (Directed Acyclic Graph) canvas
+- **Evaluating feasibility** with AI-assisted analysis
+- **Freezing scope** to create clear boundaries
+- **Generating PRDs** with full context from previous stages
+
+### Decision Flow
+
+```mermaid
+graph LR
+    A[Idea Canvas] --> B[Feasibility]
+    B --> C[Scope Freeze]
+    C --> D[PRD Generation]
+
+    A -.->|AI Expansion| A
+    B -.->|AI Analysis| B
+    D -.->|AI Generation| D
+```
+
+## Features
+
+- **Idea Canvas**: Visual DAG-based ideation with AI-powered node expansion
+- **Feasibility Analysis**: Compare multiple implementation plans with AI assistance
+- **Scope Management**: Define IN/OUT scope with versioned baselines
+- **PRD Generation**: Generate structured product requirements with full context
+- **Multi-Idea Support**: Manage multiple ideas within a single workspace
+
+## Tech Stack
+
+| Layer    | Technology                                               |
+| -------- | -------------------------------------------------------- |
+| Frontend | Next.js 14 (App Router), React, TypeScript, Tailwind CSS |
+| Backend  | FastAPI, Python 3.12, Pydantic                           |
+| Database | SQLite (with Postgres migration path)                    |
+| AI       | ModelScope / Auto (configurable providers)               |
+
+## Project Structure
 
 ```text
-frontend        # Next.js App Router frontend
-backend         # FastAPI backend (JSON + SSE)
+.
+├── frontend/          # Next.js 14 frontend
+│   ├── app/          # App Router pages
+│   ├── components/   # React components
+│   └── lib/          # Utilities, API clients, store
+├── backend/          # FastAPI backend
+│   └── app/
+│       ├── core/     # Auth, settings, LLM gateway
+│       ├── db/       # Models, repositories
+│       ├── routes/   # API endpoints
+│       └── schemas/  # Pydantic schemas
+├── docker-compose.yml
+└── package.json      # Root workspace config
 ```
 
-## Frontend
+## Quick Start (Local Development)
 
-- Entry: `frontend/app/page.tsx`
-- Core flow pages (idea-scoped):
-  - `/ideas`
-  - `/ideas/[ideaId]/idea-canvas`
-  - `/ideas/[ideaId]/feasibility`
-  - `/ideas/[ideaId]/feasibility/[id]`
-  - `/ideas/[ideaId]/scope-freeze`
-  - `/ideas/[ideaId]/prd`
+### Prerequisites
 
-Run commands:
+- Node.js 20+
+- Python 3.12+
+- pnpm
+- uv (Python package manager)
+
+### 1. Clone and Install
 
 ```bash
-pnpm dev:web
-pnpm build:web
-```
+# Install frontend dependencies
+pnpm install
 
-## Backend
-
-- Entry: `backend/app/main.py`
-- Health: `GET /health`
-- Workspace and ideas:
-  - `GET /workspaces/default`
-  - `GET /ideas`
-  - `POST /ideas`
-  - `GET /ideas/{idea_id}`
-  - `PATCH /ideas/{idea_id}`
-  - `PATCH /ideas/{idea_id}/context`
-- DAG canvas (idea-scoped):
-  - `GET /ideas/{idea_id}/nodes`
-  - `POST /ideas/{idea_id}/nodes`
-  - `GET /ideas/{idea_id}/nodes/{node_id}`
-  - `POST /ideas/{idea_id}/nodes/{node_id}/expand/user`
-  - `POST /ideas/{idea_id}/nodes/{node_id}/expand/stream` (SSE, query param: `pattern_id`)
-  - `POST /ideas/{idea_id}/paths`
-  - `GET /ideas/{idea_id}/paths/latest`
-- JSON endpoints:
-  - `POST /ideas/{idea_id}/agents/opportunity`
-  - `POST /ideas/{idea_id}/agents/feasibility`
-  - `POST /ideas/{idea_id}/agents/scope`
-  - `POST /ideas/{idea_id}/agents/prd`
-  - `POST /ideas/{idea_id}/prd/feedback`
-- SSE endpoints:
-  - `POST /ideas/{idea_id}/agents/opportunity/stream`
-  - `POST /ideas/{idea_id}/agents/feasibility/stream`
-- AI aggregation settings:
-  - `GET /settings/ai`
-  - `PATCH /settings/ai`
-  - `POST /settings/ai/test`
-  - Frontend page: `/settings`
-
-Legacy compatibility note:
-
-- `POST /agents/*` now returns `410 Gone` and should not be used.
-
-Setup and run:
-
-```bash
+# Setup Python environment
 cd backend
 uv venv .venv
 UV_CACHE_DIR=../.uv-cache uv pip install -r requirements.txt
-UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Optional env vars:
+### 2. Configure Environment
+
+Create a `.env` file in the project root:
 
 ```bash
-export LLM_MODE=auto  # default; set mock to force deterministic mock-only mode
-export DECISIONOS_SECRET_KEY="replace-with-strong-secret"
-export DECISIONOS_CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:3000"
+# Required: Admin credentials (no defaults provided)
+export DECISIONOS_SEED_ADMIN_USERNAME=admin
+export DECISIONOS_SEED_ADMIN_PASSWORD=your-secure-password-here
+
+# Optional
+export LLM_MODE=mock              # mock | auto | modelscope
+export DECISIONOS_SECRET_KEY=your-secret-key
 ```
 
-AI provider behavior:
+> ⚠️ **Security**: You MUST set admin credentials via environment variables. The application will fail to start without them.
 
-- Exactly **one** provider may be `enabled: true` at a time. The `PATCH /settings/ai` endpoint returns `422` if more than one provider is enabled simultaneously.
-- The active provider is selected by `_get_active_provider()` in `ai_gateway.py`. If no provider is enabled, all AI calls raise `RuntimeError` with a user-friendly message.
-- The frontend enforces radio-button semantics: clicking "Set Active" on a provider disables all others before enabling the chosen one.
-
-Type checking:
+### 3. Start Backend
 
 ```bash
 cd backend
-UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python mypy app
+UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-## Notes
-
-- Frontend uses Zustand persist with `skipHydration: true` and manual rehydrate.
-- SSE client uses `fetch` stream parsing and supports `AbortController`.
-- Backend mock outputs are deterministic by `idea_seed`.
-- AI provider API keys are stored encrypted in SQLite using `DECISIONOS_SECRET_KEY` (set this in production).
-- Idea Canvas is powered by a DAG (Directed Acyclic Graph) using `@xyflow/react`. Components live in `frontend/components/idea/dag/`.
-- DAG expansion patterns are hardcoded in `backend/app/schemas/dag.py` (`EXPANSION_PATTERNS`): 缩小用户群体, 功能边界扩展, 场景迁移, 商业模式变体, 极简核心.
-- Confirmed paths (`idea_paths`) store both `path_md` (Markdown, LLM-ready context) and `path_json` (structured, for cross-idea analysis) for use in downstream stages.
-- `confirmed_dag_path_id` is stamped onto `idea.context_json` by the `POST /ideas/{idea_id}/paths` endpoint. This field gates the Feasibility stage: `canRunFeasibility` in `frontend/lib/guards.ts` returns `true` only when this field is set. After confirming a path, the UI automatically navigates to `/ideas/{ideaId}/feasibility`.
-- `POST /ideas/{idea_id}/nodes` (create root node) is **idempotent**: if nodes already exist for the idea, the endpoint returns the existing root node instead of creating a duplicate. This prevents the duplicate root node bug caused by React 18 StrictMode double-mounting `useEffect`.
-- The `IdeaDAGCanvas` init `useEffect` uses a `cancelled` flag in its cleanup to prevent async race conditions in React 18 StrictMode. Both the frontend flag and backend idempotency are required as defence-in-depth.
-- The `idea-canvas` page passes `idea.idea_seed ?? idea.title` as `ideaSeed` to `IdeaDAGCanvas`. Without this fallback, new ideas with `idea_seed = null` would pass an empty string and trigger a `422` from the backend (which enforces `min_length=1` on `CreateRootNodeRequest.content`).
-
-## PRD V2 Contract
-
-- `POST /ideas/{idea_id}/agents/prd` request body is minimal:
-  - `version: number`
-  - `baseline_id: string`
-- Backend assembles `context_pack` from canonical sources:
-  - Step2: latest confirmed path (`idea_paths.path_md/path_json/summary`)
-  - Step3: selected feasibility plan and alternatives
-  - Step4: frozen scope baseline + mapped scope details
-- Response envelope remains `{ idea_id, idea_version, data }`, where `data` is PRD V2:
-  - `markdown`
-  - `sections[]`
-  - `requirements[]`
-  - `backlog.items[]` (each item includes `requirement_id`)
-  - `generation_meta`
-- PRD persistence fields in `idea.context_json`:
-  - `prd` (latest parsed output)
-  - `prd_bundle` (baseline + fingerprint + output + metadata)
-
-### Strict Failure Behavior
-
-- `LLM_MODE=mock`: deterministic mock generation is allowed.
-- `LLM_MODE!=mock`: PRD generation is strict and does **not** silently fallback to mock.
-- Provider/schema failures return:
-  - HTTP `502`
-  - `detail.code = PRD_GENERATION_FAILED`
-
-## PRD Feedback Contract
-
-- `POST /ideas/{idea_id}/prd/feedback`
-- Request body:
-  - `version`
-  - `baseline_id`
-  - `rating_overall` (1-5)
-  - `rating_dimensions` (`clarity|completeness|actionability|scope_fit`, each 1-5)
-  - `comment?`
-- Write semantics:
-  - CAS/optimistic lock required (`version`)
-  - only latest record is kept in `context.prd_feedback_latest`
-- successful write bumps `idea.version`
-
-## Docker Compose / Coolify
-
-This repo now includes:
-
-- `docker-compose.yml`
-- `frontend/Dockerfile`
-- `backend/Dockerfile`
-
-Local run:
+### 4. Start Frontend
 
 ```bash
+pnpm dev:web
+```
+
+Visit `http://localhost:3000` and login with your configured admin credentials.
+
+## Deployment
+
+### Docker Compose (Recommended)
+
+```bash
+# Set required environment variables
+export DECISIONOS_SEED_ADMIN_USERNAME=admin
+export DECISIONOS_SEED_ADMIN_PASSWORD=your-secure-password
+
+# Start services
 docker compose up --build -d
 ```
 
-Coolify quick deploy:
+Access:
 
-1. Create a new Docker Compose service in Coolify and point it to this repo.
-2. Use `docker-compose.yml` at repo root.
-3. Configure env vars:
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+### Coolify
+
+1. Create a new Docker Compose service pointing to this repo
+2. Configure environment variables:
    - `NEXT_PUBLIC_API_BASE_URL=https://<your-api-domain>`
    - `DECISIONOS_CORS_ORIGINS=https://<your-web-domain>`
    - `DECISIONOS_SECRET_KEY=<strong-random-secret>`
-   - `LLM_MODE=mock` (or `auto` in production)
-   - **REQUIRED:** `DECISIONOS_SEED_ADMIN_USERNAME=<admin-username>` (no default)
-   - **REQUIRED:** `DECISIONOS_SEED_ADMIN_PASSWORD=<strong-admin-password>` (no default)
-4. Expose `web` and `api` with their own domains in Coolify.
+   - `DECISIONOS_SEED_ADMIN_USERNAME=<admin-username>` (required)
+   - `DECISIONOS_SEED_ADMIN_PASSWORD=<strong-password>` (required)
+   - `LLM_MODE=mock` (or `auto` for production)
+3. Expose `web` (port 3000) and `api` (port 8000) with their own domains
 
-Notes:
+> **Note**: SQLite is persisted via named volume `decisionos_data` mounted at `/data`.
 
-- SQLite is persisted via named volume `decisionos_data` mounted at `/data`.
-- `DECISIONOS_DB_PATH` defaults to `/data/decisionos.db` in compose.
+## Configuration
 
-## DAG SSE Event Format
+### Required Environment Variables
 
-The DAG expand stream (`POST /ideas/{idea_id}/nodes/{node_id}/expand/stream`) uses named SSE events, **not** the general agent envelope:
+| Variable                         | Description    | Example         |
+| -------------------------------- | -------------- | --------------- |
+| `DECISIONOS_SEED_ADMIN_USERNAME` | Admin username | `admin`         |
+| `DECISIONOS_SEED_ADMIN_PASSWORD` | Admin password | `change-me-now` |
+
+### Optional Environment Variables
+
+| Variable                              | Default                           | Description                              |
+| ------------------------------------- | --------------------------------- | ---------------------------------------- |
+| `DECISIONOS_DB_PATH`                  | `./decisionos.db`                 | SQLite database path                     |
+| `DECISIONOS_SECRET_KEY`               | `decisionos-dev-secret-change-me` | Encryption key for secrets               |
+| `DECISIONOS_CORS_ORIGINS`             | `http://localhost:3000`           | Comma-separated allowed origins          |
+| `DECISIONOS_AUTH_DISABLED`            | `false`                           | Disable auth (dev only)                  |
+| `DECISIONOS_AUTH_SESSION_TTL_SECONDS` | `43200`                           | Session timeout (12 hours)               |
+| `LLM_MODE`                            | `auto`                            | AI mode: `mock`, `auto`, or `modelscope` |
+
+### Seed Users
+
+Two seed users are created on first startup:
+
+- **Admin**: Required, credentials from environment variables
+- **Test**: Optional, defaults to `test`/`test` (configurable via env)
+
+## Core Concepts
+
+### Decision Stages
+
+1. **Idea Canvas**: Explore ideas using a visual DAG. Start with a seed, expand nodes using AI patterns (narrow audience, expand features, scenario shift, etc.), and confirm a path.
+
+2. **Feasibility**: Evaluate multiple implementation approaches. AI generates plans with effort estimates, trade-offs, and recommendations. Select one plan to proceed.
+
+3. **Scope Freeze**: Define clear IN/OUT scope. Create versioned baselines. Once frozen, scope becomes immutable for PRD generation.
+
+4. **PRD Generation**: Generate structured PRDs with:
+   - Markdown narrative
+   - Requirements breakdown
+   - Backlog items linked to requirements
+   - Full context from previous stages
+
+### Authentication
+
+- Bearer token-based authentication
+- Sessions stored in database with configurable TTL
+- Tokens are hashed using SHA-256 before storage
+- Passwords use PBKDF2-SHA256 with random salt (210,000 iterations)
+
+## API Documentation
+
+When the backend is running, visit:
 
 ```
-event: progress
-data: {"step": "generating", "pct": 10}
-
-event: progress
-data: {"step": "persisting", "pct": 70}
-
-event: done
-data: {"idea_id": "...", "nodes": [{...IdeaNodeOut...}]}
-
-event: error
-data: {"code": "EXPAND_FAILED", "message": "..."}
+http://localhost:8000/docs
 ```
 
-This differs from the opportunity/feasibility agent SSE streams which use a general envelope `{idea_id, idea_version, data}`. The DAG SSE does **not** bump `idea_version`.
+This provides interactive OpenAPI/Swagger documentation with all endpoints, request/response schemas, and authentication requirements.
+
+## Development
+
+### Frontend
+
+```bash
+pnpm dev:web      # Development server
+pnpm build:web    # Production build
+```
+
+### Backend
+
+```bash
+# Type checking
+UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python mypy app
+
+# Run tests
+UV_CACHE_DIR=../.uv-cache uv run --python .venv/bin/python pytest
+```
+
+### Code Style
+
+- Frontend: Prettier + ESLint (enforced via Husky pre-commit hooks)
+- Backend: Follow PEP 8, type hints required
+
+## Architecture Decisions
+
+### SQLite for Single-User
+
+SQLite is chosen for simplicity in single-user deployments. The schema is designed to be migration-friendly for future Postgres support.
+
+### Optimistic Locking
+
+All mutating operations use version-based optimistic locking to prevent concurrent modification issues.
+
+### Context as JSON
+
+Idea context is stored as JSON with schema versioning. This allows flexible evolution of the data model while maintaining backward compatibility.
+
+## License
+
+MIT
