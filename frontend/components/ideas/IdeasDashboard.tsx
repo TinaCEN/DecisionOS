@@ -1,0 +1,196 @@
+'use client'
+
+import Link from 'next/link'
+import { FormEvent, useEffect, useState } from 'react'
+
+import { useIdeasStore } from '../../lib/ideas-store'
+
+export function IdeasDashboard() {
+  const ideas = useIdeasStore((state) => state.ideas)
+  const activeIdeaId = useIdeasStore((state) => state.activeIdeaId)
+  const loading = useIdeasStore((state) => state.loading)
+  const error = useIdeasStore((state) => state.error)
+  const loadIdeas = useIdeasStore((state) => state.loadIdeas)
+  const createIdea = useIdeasStore((state) => state.createIdea)
+  const setActiveIdeaId = useIdeasStore((state) => state.setActiveIdeaId)
+  const deleteIdea = useIdeasStore((state) => state.deleteIdea)
+
+  const [title, setTitle] = useState('')
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    void loadIdeas()
+  }, [loadIdeas])
+
+  const handleCreateIdea = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmed = title.trim()
+    if (!trimmed) {
+      return
+    }
+
+    await createIdea(trimmed)
+    setTitle('')
+  }
+
+  return (
+    <main className="mx-auto max-w-6xl p-6">
+      <section className="rounded-2xl border border-[#1e1e1e]/10 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#1e1e1e]">Ideas</h1>
+            <p className="mt-1 text-sm text-[#1e1e1e]/50">
+              Manage multiple ideas in one workspace and continue each flow independently.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadIdeas()}
+            className="rounded-lg border border-[#1e1e1e]/15 bg-white px-3 py-2 text-sm font-medium text-[#1e1e1e]/70 hover:bg-[#f5f5f5] transition"
+          >
+            Refresh
+          </button>
+        </div>
+
+        <form onSubmit={handleCreateIdea} className="mt-5 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.currentTarget.value)}
+            placeholder="e.g. AI Copilot for PRD alignment"
+            className="w-full rounded-xl border border-[#1e1e1e]/12 bg-[#f5f5f5] px-4 py-2.5 text-sm text-[#1e1e1e] outline-none transition placeholder:text-[#1e1e1e]/30 focus:border-[#b9eb10] focus:ring-2 focus:ring-[#b9eb10]/25"
+          />
+          <button
+            type="submit"
+            className="shrink-0 rounded-xl bg-[#1e1e1e] px-5 py-2.5 text-sm font-bold text-[#b9eb10] hover:bg-[#333] transition"
+          >
+            New Idea
+          </button>
+        </form>
+
+        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+        {loading ? <p className="mt-3 text-sm text-[#1e1e1e]/40">Loading ideas...</p> : null}
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {ideas.map((idea) => {
+            const isActive = activeIdeaId === idea.id
+            return (
+              <article
+                key={idea.id}
+                className={`group relative rounded-xl border p-4 transition ${
+                  isActive
+                    ? 'border-[#b9eb10] bg-[#1e1e1e]'
+                    : 'border-[#1e1e1e]/10 bg-white hover:border-[#1e1e1e]/20'
+                }`}
+              >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConfirmingId(idea.id)
+                  }}
+                  className="absolute top-3 right-3 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100"
+                  style={{ color: isActive ? '#ffffff66' : '#1e1e1e44' }}
+                  aria-label="Delete idea"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    />
+                  </svg>
+                </button>
+
+                {confirmingId === idea.id ? (
+                  <div className="flex flex-col gap-3 p-4">
+                    <p className={`text-sm ${isActive ? 'text-white' : 'text-[#1e1e1e]'}`}>
+                      Delete <span className="font-semibold">{idea.title}</span>?
+                    </p>
+                    <p className={`text-xs ${isActive ? 'text-white/50' : 'text-[#1e1e1e]/50'}`}>
+                      This cannot be undone. All nodes and paths will be removed.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setConfirmingId(null)}
+                        disabled={deleting}
+                        className="flex-1 rounded-lg border border-[#1e1e1e]/20 py-2 text-sm text-[#1e1e1e]/60 hover:border-[#1e1e1e]/40 disabled:opacity-50 transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setDeleting(true)
+                          try {
+                            await deleteIdea(idea.id)
+                            setConfirmingId(null)
+                          } finally {
+                            setDeleting(false)
+                          }
+                        }}
+                        disabled={deleting}
+                        className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 transition"
+                      >
+                        {deleting ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className={`text-sm font-semibold ${isActive ? 'text-[#b9eb10]' : 'text-[#1e1e1e]'}`}>{idea.title}</h2>
+                        <p className={`mt-1 text-xs ${isActive ? 'text-white/50' : 'text-[#1e1e1e]/40'}`}>
+                          Stage: {idea.stage} · Status: {idea.status}
+                        </p>
+                        <p className={`mt-1 text-xs ${isActive ? 'text-white/40' : 'text-[#1e1e1e]/30'}`}>
+                          Updated: {idea.updated_at.slice(0, 16)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveIdeaId(idea.id)}
+                        className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${
+                          isActive
+                            ? 'bg-[#b9eb10] text-[#1e1e1e]'
+                            : 'border border-[#1e1e1e]/15 bg-[#f5f5f5] text-[#1e1e1e]/60 hover:bg-[#ebebeb]'
+                        }`}
+                      >
+                        {isActive ? 'Active ✓' : 'Set Active'}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={`/ideas/${idea.id}/idea-canvas`}
+                        className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                          isActive
+                            ? 'bg-white/10 text-white hover:bg-white/20'
+                            : 'border border-[#1e1e1e]/12 bg-[#f5f5f5] text-[#1e1e1e]/70 hover:bg-[#ebebeb]'
+                        }`}
+                      >
+                        Open Flow
+                      </Link>
+                    </div>
+                  </>
+                )}
+              </article>
+            )
+          })}
+
+          {!loading && ideas.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[#1e1e1e]/15 p-6 text-sm text-[#1e1e1e]/40">
+              No ideas yet. Create your first idea above.
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </main>
+  )
+}

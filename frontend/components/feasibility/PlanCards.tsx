@@ -1,0 +1,120 @@
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+import { buildIdeaFeasibilityDetailHref, resolveIdeaIdForRouting } from '../../lib/idea-routes'
+import { useIdeasStore } from '../../lib/ideas-store'
+import type { FeasibilityPlan } from '../../lib/schemas'
+
+type PlanCardsProps = {
+  plans: FeasibilityPlan[]
+  selectedPlanId?: string
+  onSelect?: (planId: string) => void
+  loadingSlots?: number
+}
+
+function PlanCardSkeleton() {
+  return (
+    <article className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="h-4 w-2/3 rounded bg-slate-200" />
+        <div className="h-6 w-16 rounded bg-slate-200" />
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="h-3 w-full rounded bg-slate-100" />
+        <div className="h-3 w-4/5 rounded bg-slate-100" />
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+        <div className="h-3 w-full rounded bg-slate-200" />
+        <div className="h-3 w-full rounded bg-slate-200" />
+        <div className="h-3 w-full rounded bg-slate-200" />
+      </div>
+      <div className="mt-4 flex items-center gap-2">
+        <div className="h-3 w-16 rounded bg-slate-100" />
+        <span className="text-xs text-slate-400">Generating...</span>
+      </div>
+    </article>
+  )
+}
+
+export function PlanCards({ plans, selectedPlanId, onSelect, loadingSlots = 0 }: PlanCardsProps) {
+  const pathname = usePathname()
+  const activeIdeaId = useIdeasStore((state) => state.activeIdeaId)
+  const buildDetailHref = (planId: string): string => {
+    const routeIdeaId = resolveIdeaIdForRouting(pathname, activeIdeaId)
+    return routeIdeaId ? buildIdeaFeasibilityDetailHref(routeIdeaId, planId) : '/ideas'
+  }
+
+  const skeletonCount = Math.max(0, loadingSlots - plans.length)
+
+  return (
+    <section className="grid gap-4 md:grid-cols-3">
+      {plans.map((plan) => {
+        const selected = selectedPlanId === plan.id
+
+        return (
+          <article
+            key={plan.id}
+            className={[
+              'rounded-2xl border p-4 shadow-sm transition-all duration-200 motion-reduce:transition-none',
+              selected
+                ? 'border-slate-900 bg-slate-900 text-slate-50 shadow-md shadow-slate-900/20'
+                : 'border-slate-200 bg-white text-slate-900 hover:-translate-y-0.5 hover:border-cyan-400/60 hover:shadow-md',
+            ].join(' ')}
+          >
+            <Link
+              href={buildDetailHref(plan.id)}
+              className="group block w-full text-left focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-base font-semibold tracking-tight">{plan.name}</h2>
+                <span
+                  className={[
+                    'rounded-md border px-2 py-1 text-[11px] font-medium',
+                    selected
+                      ? 'border-slate-200/20 bg-white/10 text-slate-100'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 group-hover:border-cyan-200 group-hover:bg-cyan-50 group-hover:text-cyan-700',
+                  ].join(' ')}
+                >
+                  Overall {plan.score_overall.toFixed(1)}
+                </span>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-current/80">{plan.summary}</p>
+              <div
+                className={[
+                  'mt-4 grid grid-cols-3 gap-2 rounded-lg border p-3 text-xs',
+                  selected ? 'border-slate-200/20 bg-white/5' : 'border-slate-200 bg-slate-50/80',
+                ].join(' ')}
+              >
+                <div>Tech: {plan.scores.technical_feasibility.toFixed(1)}</div>
+                <div>Market: {plan.scores.market_viability.toFixed(1)}</div>
+                <div>Risk: {plan.scores.execution_risk.toFixed(1)}</div>
+              </div>
+            </Link>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {onSelect ? (
+                <button
+                  type="button"
+                  className="rounded-md border border-current/30 px-2.5 py-1.5 text-xs font-medium transition-colors duration-200 hover:bg-current/10 focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+                  onClick={() => onSelect(plan.id)}
+                >
+                  Select
+                </button>
+              ) : null}
+              <Link
+                href={buildDetailHref(plan.id)}
+                className="rounded-md border border-current/30 px-2.5 py-1.5 text-xs font-medium transition-colors duration-200 hover:bg-current/10 focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
+                View Detail
+              </Link>
+            </div>
+          </article>
+        )
+      })}
+      {Array.from({ length: skeletonCount }).map((_, i) => (
+        <PlanCardSkeleton key={`skeleton-${i}`} />
+      ))}
+    </section>
+  )
+}
